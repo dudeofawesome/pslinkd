@@ -1,0 +1,19 @@
+# devenv and direnv state
+.devenv/
+.direnv/
+
+# Nix build outputs
+result
+result-*
+
+# Go build and test artifacts
+/pslinkd
+*.test
+coverage*.out
+*.prof
+
+# Editor and operating-system metadata
+.idea/
+*.swp
+*.swo
+.DS_Store
