@@ -31,8 +31,9 @@ V1 is a single per-user Go daemon which:
 - detects a Sony PULSE Elite CFI-ZWA2 PlayStation Link adapter;
 - polls feature report `0xB0` without consuming an interrupt endpoint;
 - debounces the headset radio-link state;
-- changes WirePlumber's default output, and optionally its default input, on
-  radio-link transitions;
+- associates the selected HID adapter with its WirePlumber audio nodes and
+  changes the default output, and optionally the default input, on radio-link
+  transitions;
 - is packaged and deployable through Nix and a Home Manager module without
   running as root.
 

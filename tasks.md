@@ -63,6 +63,24 @@ change first.
 - [x] Prove through tests that pinned streams are never enumerated/moved and
   later user default changes are not periodically overwritten.
 
+## 6a. Automatic headset audio-target discovery
+
+- [ ] Make headset sink configuration optional while retaining exact-name
+  overrides; make fallback source alone enable automatic headset-source
+  routing.
+- [ ] Retain the selected HID candidate's parent USB-device identity and carry
+  it through desired connected audio actions.
+- [ ] Inspect current WirePlumber audio devices and associate exactly the same
+  physical USB adapter without guessing from VID/PID alone.
+- [ ] Resolve matching sink/source nodes by current `device.id`, greatest
+  `priority.session`, and lexicographic `node.name`, warning when several nodes
+  are eligible.
+- [ ] Add configuration, resolver, policy, logging, and Home Manager acceptance
+  tests for automatic discovery, explicit overrides, ambiguity, retry, replug,
+  and multiple identical adapters.
+- [ ] Run the automatic-discovery Olympus release gates and record the matched
+  HID, audio-device, sink, and source identities.
+
 ## 7. Logging and daemon lifecycle
 
 - [x] Implement JSON-line structured logging and the required event names and
@@ -77,7 +95,7 @@ change first.
 - [x] Implement `packages/pslinkd/package.nix` with `buildGoModule`, cgo,
   libudev, tests, metadata, and a deterministic runtime path for `wpctl`.
 - [x] Complete package/default outputs for `x86_64-linux` and `aarch64-linux`.
-- [x] Keep development tooling exclusively in `devenv.nix`; export the
+- [x] Keep the development environment exclusively in `devenv.nix`; export the
   formatter and package checks without a duplicate flake `devShells` output.
 - [x] Verify `nix build`, `nix flake check`, and the packaged executable's
   runtime closure.
@@ -102,12 +120,12 @@ change first.
 
 ## 10. Documentation and v1 hardware acceptance
 
-- [ ] Expand the README with standalone/Home Manager configuration, the NixOS
+- [x] Expand the README with standalone/Home Manager configuration, the NixOS
   host permission snippet and group-session caveat, JSON journal examples,
   known hardware, and non-goals.
 - [ ] Run and record every automated acceptance criterion.
-- [ ] Run and record all eight Olympus v1 release gates.
-- [ ] Publish the v1.1 button-interaction milestone and other outstanding
+- [ ] Run and record every Olympus v1 release gate.
+- [x] Publish the v1.1 button-interaction milestone and other outstanding
   post-v1 hardware-validation checklists.
 
 ## 11. V1.1 button interactions
@@ -119,7 +137,7 @@ change first.
 - [ ] Add strict `controls.enabled` YAML and typed
   `services.pslinkd.controls.enable` Home Manager options, both defaulting off.
 - [ ] Implement absolute PipeWire volume and microphone mute convergence using
-  the v1 exact-name resolver and retry machinery.
+  the v1 automatic/override resolver and retry machinery.
 - [ ] Add every automated acceptance test in `specs/v1.1.md`.
 - [ ] Run and record every Olympus v1.1 release gate before releasing v1.1.
 

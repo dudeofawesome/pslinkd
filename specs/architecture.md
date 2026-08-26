@@ -15,6 +15,7 @@ libudev discovery -> hidraw feature reader -> report decoder
                                          -> connection debouncer
                                          -> normalized state/events
                                          -> routing policy
+                                         -> audio target resolver
                                          -> wpctl adapter
 ```
 
@@ -29,7 +30,10 @@ add/remove events so the device node exists before an add is handled.
 
 Candidates are matched by the fixed device profile in `requirements.md`,
 including HID interface 3. Discovery produces a path only after all identity
-checks pass. Opening, polling, and closing the path belong to the HID layer.
+checks pass. Each candidate also retains the parent USB-device syspath and USB
+serial when present so audio discovery can identify the same physical adapter;
+the interface-3 hidraw syspath itself MUST NOT be treated as the audio-device
+syspath. Opening, polling, and closing the hidraw path belong to the HID layer.
 
 The monitor MUST tolerate irrelevant and duplicate udev events. Monitor failure
 MUST be logged and retried with backoff or cause a nonzero daemon exit so
@@ -84,20 +88,45 @@ established. Polling MUST NOT set the default on every sample.
 ## Audio policy and wpctl adapter
 
 V1 uses the `wpctl` command-line interface, not PulseAudio compatibility or
-native PipeWire bindings. Configured sink/source selectors are exact
-PipeWire/WirePlumber `node.name` values. Ephemeral numeric IDs MUST NOT appear in
-configuration or be retained across actions.
+native PipeWire bindings. Fallback selectors and optional headset overrides are
+exact PipeWire/WirePlumber `node.name` values. Ephemeral numeric IDs MUST NOT
+appear in configuration or be retained across actions.
 
-For each action, the adapter runs the machine-readable
+An explicit headset override is trusted as an exact selector and bypasses USB
+association. For each such action, the adapter runs the machine-readable
 `wpctl list audio sinks` or `wpctl list audio sources`, requires exactly one
-exact name match, and uses that current ID with `wpctl set-default`,
-Locale MUST NOT affect parsing.
+exact name match, and uses that current ID with `wpctl set-default`.
 
-On connection, desired routing is the headset sink and optional headset source.
-On disconnection or adapter absence, it is the fallback sink and optional
-fallback source. WirePlumber's normal `linking.follow-default-target` behavior
-may move streams following the default. pslinkd does not enumerate or forcibly
-move pinned streams.
+When an override is absent, the resolver MUST:
+
+1. use `wpctl list audio devices` and `wpctl inspect` to find the
+   `Audio/Device` whose `device.sysfs.path` belongs to the selected HID
+   candidate's parent USB-device syspath;
+2. reject missing, malformed, or non-unique physical-device association rather
+   than guessing from VID/PID alone; when serials are present on both sides, a
+   mismatch also rejects the association;
+3. list and inspect the requested sink or source nodes and retain only nodes
+   whose `device.id` references that matched audio device;
+4. choose the node with the greatest integer `priority.session`, treating a
+   missing priority as lower than every present priority and a present
+   non-integer priority as malformed; and
+5. break an equal-priority tie by lexicographically smallest `node.name`.
+
+If several eligible nodes exist, the resolver MUST log a structured warning
+listing their names, priorities, kind, and selected name even though selection
+can continue. No eligible node, unparseable required properties, or an
+unresolvable device association is an audio-action failure handled by the
+normal retry policy. All device and node IDs MUST be resolved again on every
+action and retry. Locale MUST NOT affect list or inspection parsing.
+
+On connection, desired routing is the automatically discovered headset sink or
+its exact override. When source routing is enabled, connection likewise uses
+the discovered headset source or its exact override. On disconnection or
+adapter absence, routing uses the exact fallback sink and optional exact
+fallback source. Headset targets need not be discovered for a fallback action.
+WirePlumber's normal `linking.follow-default-target` behavior may move streams
+following the default. pslinkd does not enumerate or forcibly move pinned
+streams.
 
 An audio transition creates a desired action revision. Failures—including no
 match, ambiguous match, command timeout, nonzero exit, and WirePlumber absence—

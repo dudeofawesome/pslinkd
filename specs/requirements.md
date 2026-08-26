@@ -8,11 +8,13 @@ USB audio-device presence, to choose an audio route.
 
 When the configured user session is running:
 
-1. A connected headset MUST select the configured headset sink promptly.
+1. A connected headset MUST select the automatically discovered headset sink,
+   or its configured exact-name override, promptly.
 2. A disconnected headset or absent adapter MUST select the configured
    fallback sink promptly.
-3. When both optional sources are configured, connection MUST select the
-   headset source and disconnection MUST select the fallback source.
+3. When a fallback source is configured, connection MUST select the
+   automatically discovered headset source or its configured exact-name
+   override, and disconnection MUST select the fallback source.
 4. Transient HID failures below the disconnect threshold MUST NOT flap the
    audio route.
 5. The daemon MUST recover from adapter removal and reinsertion without being
@@ -43,6 +45,11 @@ The hidraw number and device serial MUST NOT be hard-coded. If more than one
 supported adapter is present, the daemon MUST select the adapter with the
 lexicographically first libudev syspath and log one warning listing all
 candidates. Selection MUST be recomputed when the selected adapter is removed.
+
+The daemon MUST associate automatically selected audio nodes with that same
+physical USB adapter, not merely with any audio device sharing the supported
+VID/PID. Automatic discovery MUST therefore remain correct when more than one
+supported adapter is present.
 
 ## Connection decoding
 

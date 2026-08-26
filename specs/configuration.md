@@ -28,10 +28,12 @@ Canonical example:
 
 ```yaml
 audio:
-  headset_sink: alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo
+  # Omit headset_sink to discover the selected adapter's sink automatically.
+  # headset_sink: alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo
   fallback_sink: alsa_output.pci-0000_03_00.1.hdmi-surround-extra3
 
-  # Sources are optional, but must be supplied as a pair.
+  # fallback_source enables source routing. Omit headset_source to discover the
+  # selected adapter's source automatically, or set an exact-name override.
   # headset_source: alsa_input.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.mono-fallback
   # fallback_source: alsa_input.pci-0000_00_1f.3.analog-stereo
 
@@ -47,17 +49,19 @@ logging:
 
 | Key | Type | Default | Validation |
 | --- | --- | --- | --- |
-| `audio.headset_sink` | string | required | nonempty exact `node.name` |
+| `audio.headset_sink` | string | unset | nonempty exact `node.name` override; unset discovers automatically |
 | `audio.fallback_sink` | string | required | nonempty exact `node.name` |
-| `audio.headset_source` | string | unset | nonempty; requires fallback source |
-| `audio.fallback_source` | string | unset | nonempty; requires headset source |
+| `audio.headset_source` | string | unset | nonempty exact `node.name` override; requires fallback source |
+| `audio.fallback_source` | string | unset | nonempty; enables source routing and automatic headset-source discovery |
 | `polling.interval` | duration string | `200ms` | `50ms..10s` |
 | `polling.disconnect_failures` | integer | `3` | `1..50` |
 | `logging.level` | string enum | `info` | `debug`, `info`, `warn`, or `error` |
 
-The source pair controls default-source routing. Button, volume, and microphone
-interaction settings are reserved for v1.1 and are unknown-key errors in a v1
-configuration.
+`fallback_source` controls whether default-source routing is enabled. With it
+set, an omitted `headset_source` is automatically discovered; with it unset,
+source routing is disabled and `headset_source` MUST also be unset. Button,
+volume, and microphone interaction settings are reserved for v1.1 and are
+unknown-key errors in a v1 configuration.
 
 Device IDs, report layout, routing retry policy, and log format are not
 configurable in v1.
@@ -67,13 +71,15 @@ configurable in v1.
 `run` writes one JSON object per line for journald. Every record contains at
 least `time`, `level`, `event`, and `message`. Relevant records include stable
 fields such as `device_path`, `adapter_present`, `headset_connected`, `attempt`,
-`target_name`, and `error` when applicable.
+`target_name`, `target_kind`, `candidate_names`, `candidate_priorities`, and
+`error` when applicable.
 
 Event names MUST distinguish at least:
 
 - daemon start/stop;
 - adapter added/removed and multiple-adapter warning;
 - headset connected/disconnected;
+- automatic audio-target selection with multiple eligible nodes;
 - audio action succeeded/retrying; and
 - HID/discovery recovery or fatal failure.
 

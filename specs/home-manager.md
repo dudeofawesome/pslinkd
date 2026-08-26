@@ -54,10 +54,10 @@ The module namespace is `services.pslinkd` and exposes typed options:
 | --- | --- | --- |
 | `enable` | boolean, `false` | Enable user deployment |
 | `package` | package | pslinkd package to install and run |
-| `audio.headsetSink` | nonempty string, required | Exact headset `node.name` |
+| `audio.headsetSink` | null or nonempty string, `null` | Exact headset `node.name` override; null discovers automatically |
 | `audio.fallbackSink` | nonempty string, required | Exact fallback `node.name` |
-| `audio.headsetSource` | null or nonempty string | Optional headset source |
-| `audio.fallbackSource` | null or nonempty string | Optional fallback source |
+| `audio.headsetSource` | null or nonempty string, `null` | Exact headset source override; null discovers when source routing is enabled |
+| `audio.fallbackSource` | null or nonempty string, `null` | Exact fallback source; non-null enables source routing |
 | `polling.interval` | duration string, `200ms` | Feature-report interval |
 | `polling.disconnectFailures` | integer, `3` | Consecutive failures to disconnect |
 | `logLevel` | enum, `info` | JSON log threshold |
@@ -65,14 +65,16 @@ The module namespace is `services.pslinkd` and exposes typed options:
 There is no username option: the owner is the account whose Home Manager
 configuration imports and enables the module.
 
-The module MUST enforce the same bounds and source-pair invariant as the daemon
-at Home Manager evaluation time. It adds the selected package to
-`home.packages`, generates strict YAML in the Nix store, and passes its path
-explicitly with `pslinkd run --config ...`. The module MUST declare the
-generated config and selected package in the unit's `X-Restart-Triggers`, so
-normal Home Manager `sd-switch` activation restarts the service when either
-changes. It MUST NOT override the user's global `systemd.user.startServices`
-policy.
+The module MUST enforce the same bounds and source invariant as the daemon at
+Home Manager evaluation time: a non-null `headsetSource` requires a non-null
+`fallbackSource`, while `fallbackSource` alone enables automatic headset-source
+discovery. Null headset selectors MUST be omitted from generated YAML. The
+module adds the selected package to `home.packages`, generates strict YAML in
+the Nix store, and passes its path explicitly with `pslinkd run --config ...`.
+The module MUST declare the generated config and selected package in the unit's
+`X-Restart-Triggers`, so normal Home Manager `sd-switch` activation restarts the
+service when either changes. It MUST NOT override the user's global
+`systemd.user.startServices` policy.
 
 Button interaction options are reserved for v1.1 and MUST NOT appear in the v1
 module API or generated configuration.

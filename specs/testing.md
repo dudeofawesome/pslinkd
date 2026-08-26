@@ -11,12 +11,13 @@ adapters instead of sleeping.
 
 Automated tests MUST cover:
 
-- the canonical minimal config and a config with the source pair;
+- the canonical minimal automatic-sink config, exact sink override, automatic
+  source config, and exact source override;
 - defaults for polling, disconnect threshold, and log level;
 - comments in YAML;
 - unknown and duplicate keys;
-- missing/empty sinks;
-- only one source supplied;
+- missing/empty fallback sink and empty headset overrides;
+- a headset source without a fallback source;
 - invalid duration, bounds, integer, and log level; and
 - XDG default-path resolution plus `--config` override.
 
@@ -48,13 +49,21 @@ Using a fake clock and sample stream, tests MUST prove:
 ### Policy and wpctl tests
 
 Tests MUST use a fake command runner and realistic machine-readable `wpctl list`
-fixtures. They MUST cover:
+and `wpctl inspect` fixtures. They MUST cover:
 
 - exact-name resolution and current-ID use;
 - missing and ambiguous targets;
-- headset/fallback sink transitions;
-- optional paired source transitions;
-- no source commands without a source pair;
+- correlation of a selected HID USB parent with its PipeWire audio device and
+  rejection of a same-VID/PID device belonging to another physical adapter;
+- absent, malformed, non-unique, and serial-mismatched device association;
+- automatic sink and source selection through the matched `device.id`;
+- highest-`priority.session` selection, missing priorities, lexicographic
+  name tie-breaking, and structured warnings listing multiple eligible nodes;
+- fresh device/node resolution on every action and retry without retained IDs;
+- automatic and exact-override headset/fallback sink transitions;
+- source routing enabled by fallback source alone and exact headset-source
+  overrides;
+- no source commands when fallback source is absent;
 - subprocess error, timeout, bounded-backoff retry, recovery, and cancellation
   of obsolete desired actions;
 - no repeated default action on steady HID samples; and
@@ -76,7 +85,10 @@ Flake checks MUST at minimum:
 
 - build the Go package and run its tests;
 - evaluate a valid Home Manager module configuration;
-- reject missing sinks, an incomplete source pair, and invalid timing;
+- accept null automatic headset selectors and fallback-source-only automatic
+  source routing;
+- reject a missing fallback sink, headset source without fallback source, and
+  invalid timing;
 - inspect the rendered user unit, generated YAML, and installed home package;
 - verify config/package restart triggers without overriding
   `systemd.user.startServices`;
@@ -93,7 +105,8 @@ complete:
 1. Start with the adapter absent: the configured fallback sink is selected.
 2. Insert the adapter with the headset off: the fallback remains selected and
    the daemon stays healthy despite expected feature-report failures.
-3. Power on the headset: the configured Sony sink becomes default promptly.
+3. Power on the headset: the automatically discovered Sony sink becomes
+   default promptly.
 4. Inject or observe one and two transient failed reads while connected: the
    Sony route remains selected.
 5. Power off the headset: the fallback becomes default after approximately
@@ -105,6 +118,11 @@ complete:
 8. Confirm the Home Manager service runs as its owning non-root user and can
    access only the scoped device after the host `pslink` group/rule prerequisite
    is configured.
+9. Configure exact headset sink and source overrides and confirm they bypass
+   automatic USB association while still resolving current node IDs.
+10. Configure a fallback source without a headset-source override. Confirm the
+    automatically resolved sink and source both belong to the same physical
+    USB adapter as the selected interface-3 hidraw device.
 
 ## V1.1 button interactions
 
