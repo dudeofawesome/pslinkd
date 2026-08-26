@@ -6,32 +6,32 @@ change first.
 
 ## 1. Project and build foundation
 
-- [ ] Initialize the Go module and choose the minimum Go version supplied by the
+- [x] Initialize the Go module and choose the minimum Go version supplied by the
   pinned Nix development environment.
 - [ ] Add only the required dependencies: strict YAML decoding, libudev Go/cgo
   bindings, and Linux syscall support.
-- [ ] Populate `devenv.nix` with Go, cgo/pkg-config, libudev, WirePlumber, and
+- [x] Populate `devenv.nix` with Go, cgo/pkg-config, libudev, WirePlumber, and
   repository formatting/test tools.
-- [ ] Add repository-wide Go test, formatting, and vet commands documented in
+- [x] Add repository-wide Go test, formatting, and vet commands documented in
   the README.
 
 ## 2. Configuration and CLI
 
 - [ ] Implement `pslinkd run [--config PATH]` and XDG config-path resolution.
-- [ ] Implement the strict YAML schema and all defaults/bounds from
+- [x] Implement the strict YAML schema and all defaults/bounds from
   `specs/configuration.md`.
 - [ ] Validate the full config before constructing discovery or audio adapters.
-- [ ] Add configuration and CLI acceptance tests.
+- [x] Add configuration and CLI acceptance tests.
 
 ## 3. HID device profile and connection decoder
 
-- [ ] Model the fixed `054c:0ecc` interface-3 device profile without generic
+- [x] Model the fixed `054c:0ecc` interface-3 device profile without generic
   VID/PID configuration.
-- [ ] Implement portable `HIDIOCGFEATURE(64)` request construction and a direct
+- [x] Implement portable `HIDIOCGFEATURE(64)` request construction and a direct
   hidraw feature reader that never consumes the interrupt stream.
-- [ ] Decode the connection bit into normalized v1 state and ignore deferred
+- [x] Decode the connection bit into normalized v1 state and ignore deferred
   button, volume, and microphone fields.
-- [ ] Add fixture-driven ioctl and connection-decoder tests.
+- [x] Add fixture-driven ioctl and connection-decoder tests.
 
 ## 4. libudev discovery and device lifecycle
 
