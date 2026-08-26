@@ -5,7 +5,8 @@
     (with pkgs; [
       go_1_25
       gotools
-      nixfmt-rfc-style
+      nix
+      nixfmt
       pkg-config
     ])
     ++ lib.optionals pkgs.stdenv.isLinux (

@@ -76,27 +76,28 @@ change first.
 
 - [x] Implement `packages/pslinkd/package.nix` with `buildGoModule`, cgo,
   libudev, tests, metadata, and a deterministic runtime path for `wpctl`.
-- [ ] Complete package/default outputs for `x86_64-linux` and `aarch64-linux`.
-- [ ] Export the development shell, formatter if selected, and package checks.
-- [ ] Verify `nix build`, `nix flake check`, and the packaged executable's
+- [x] Complete package/default outputs for `x86_64-linux` and `aarch64-linux`.
+- [x] Keep development tooling exclusively in `devenv.nix`; export the
+  formatter and package checks without a duplicate flake `devShells` output.
+- [x] Verify `nix build`, `nix flake check`, and the packaged executable's
   runtime closure.
 
 ## 9. Home Manager module and host permission asset
 
-- [ ] Implement every typed `services.pslinkd` option and evaluation-time
+- [x] Implement every typed `services.pslinkd` option and evaluation-time
   invariant in `specs/home-manager.md`.
-- [ ] Export `homeManagerModules.pslinkd` and `homeManagerModules.default`; do
+- [x] Export `homeManagerModules.pslinkd` and `homeManagerModules.default`; do
   not export a pslinkd NixOS service module.
-- [ ] Add a compatible Home Manager flake input following the repository's
+- [x] Add a compatible Home Manager flake input following the repository's
   nixpkgs input and use it for module evaluation checks.
-- [ ] Add the package to `home.packages` and generate strict YAML plus a
+- [x] Add the package to `home.packages` and generate strict YAML plus a
   systemd user unit with config/package `X-Restart-Triggers` for the owning
   account.
 - [x] Install the scoped `054c:0ecc` hidraw udev rule in the package without
   trying to activate it from Home Manager.
-- [ ] Apply compatible unit hardening without hiding hidraw, the udev monitor,
+- [x] Apply compatible unit hardening without hiding hidraw, the udev monitor,
   or the user PipeWire socket.
-- [ ] Add Home Manager evaluation/module tests for success and failure cases,
+- [x] Add Home Manager evaluation/module tests for success and failure cases,
   including absence of system-level mutations.
 
 ## 10. Documentation and v1 hardware acceptance

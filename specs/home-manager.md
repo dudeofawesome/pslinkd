@@ -21,11 +21,13 @@ export:
 
 - `packages.<system>.pslinkd` and `packages.<system>.default`;
 - `homeManagerModules.pslinkd` and `homeManagerModules.default`;
-- a development shell containing the Go/cgo, libudev, and Nix tooling needed by
-  the repository; and
 - checks that build/test Go and evaluate the Home Manager module.
 
 It MUST NOT export pslinkd as a NixOS service module.
+
+The development environment, including Go/cgo, libudev, WirePlumber, and Nix
+tools, MUST be defined only by `devenv.nix`. The flake MUST NOT export
+`devShells`, so the repository has one development-environment definition.
 
 ## Package
 
