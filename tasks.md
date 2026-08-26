@@ -54,13 +54,13 @@ change first.
 
 ## 6. WirePlumber adapter and policy
 
-- [ ] Implement a bounded-time command runner for packaged `wpctl`.
-- [ ] Parse machine-readable sink/source lists and resolve exact names to current
+- [x] Implement a bounded-time command runner for packaged `wpctl`.
+- [x] Parse machine-readable sink/source lists and resolve exact names to current
   IDs at action time.
-- [ ] Implement transition-only default sink and optional source routing.
-- [ ] Implement desired-action revisions with bounded exponential retry and
+- [x] Implement transition-only default sink and optional source routing.
+- [x] Implement desired-action revisions with bounded exponential retry and
   cancellation when desired state changes.
-- [ ] Prove through tests that pinned streams are never enumerated/moved and
+- [x] Prove through tests that pinned streams are never enumerated/moved and
   later user default changes are not periodically overwritten.
 
 ## 7. Logging and daemon lifecycle
