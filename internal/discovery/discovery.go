@@ -9,8 +9,10 @@ import (
 )
 
 type Candidate struct {
-	Syspath string
-	Devnode string
+	Syspath          string
+	Devnode          string
+	USBParentSyspath string
+	USBSerial        string
 }
 
 type Event struct {

@@ -11,7 +11,7 @@ import (
 
 type setCall struct {
 	kind   Kind
-	target string
+	target Target
 }
 
 type fakeSetter struct {
@@ -19,7 +19,7 @@ type fakeSetter struct {
 	results chan error
 }
 
-func (setter *fakeSetter) SetDefault(ctx context.Context, kind Kind, target string) error {
+func (setter *fakeSetter) SetDefault(ctx context.Context, kind Kind, target Target) error {
 	select {
 	case setter.calls <- setCall{kind: kind, target: target}:
 	case <-ctx.Done():
@@ -167,14 +167,14 @@ func TestControllerRoutesHeadsetAndFallbackSink(t *testing.T) {
 	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
 
 	h.desired <- Desired{HeadsetConnected: true}
-	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: "headset"}) {
+	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: Target{Name: "headset"}}) {
 		t.Fatalf("headset call = %#v", got)
 	}
 	h.setter.results <- nil
 	receiveSucceeded(t, h.observer)
 
 	h.desired <- Desired{}
-	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: "speakers"}) {
+	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: Target{Name: "speakers"}}) {
 		t.Fatalf("fallback call = %#v", got)
 	}
 	h.setter.results <- nil
@@ -190,23 +190,73 @@ func TestControllerRoutesOptionalSourcePair(t *testing.T) {
 	})
 	h.desired <- Desired{HeadsetConnected: true}
 
-	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: "headset"}) {
+	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: Target{Name: "headset"}}) {
 		t.Fatalf("sink call = %#v", got)
 	}
 	h.setter.results <- nil
-	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Source, target: "headset-mic"}) {
+	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Source, target: Target{Name: "headset-mic"}}) {
 		t.Fatalf("source call = %#v", got)
 	}
 	h.setter.results <- nil
 	receiveSucceeded(t, h.observer)
 
 	h.desired <- Desired{}
-	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: "speakers"}) {
+	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Sink, target: Target{Name: "speakers"}}) {
 		t.Fatalf("fallback sink call = %#v", got)
 	}
 	h.setter.results <- nil
-	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Source, target: "desk-mic"}) {
+	if got := receiveSetCall(t, h.setter); got != (setCall{kind: Source, target: Target{Name: "desk-mic"}}) {
 		t.Fatalf("fallback source call = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+}
+
+func TestControllerAutomaticallyRoutesHeadsetTargetsForSelectedUSB(t *testing.T) {
+	h := newControllerHarness(t, Targets{
+		FallbackSink:   "speakers",
+		FallbackSource: "desk-mic",
+	})
+	usb := USBIdentity{Syspath: "/sys/usb/selected", Serial: "serial-a"}
+	h.desired <- Desired{HeadsetConnected: true, USB: usb}
+
+	if got := receiveSetCall(t, h.setter); got != (setCall{
+		kind: Sink, target: Target{USB: usb},
+	}) {
+		t.Fatalf("automatic sink call = %#v", got)
+	}
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got != (setCall{
+		kind: Source, target: Target{USB: usb},
+	}) {
+		t.Fatalf("automatic source call = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+}
+
+func TestControllerUsesReplacementAdapterIdentityAfterReplug(t *testing.T) {
+	h := newControllerHarness(t, Targets{FallbackSink: "speakers"})
+	first := USBIdentity{Syspath: "/sys/usb/first", Serial: "first"}
+	second := USBIdentity{Syspath: "/sys/usb/second", Serial: "second"}
+
+	h.desired <- Desired{HeadsetConnected: true, USB: first}
+	if got := receiveSetCall(t, h.setter); got.target.USB != first {
+		t.Fatalf("first adapter target = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+
+	h.desired <- Desired{}
+	if got := receiveSetCall(t, h.setter); got.target.Name != "speakers" {
+		t.Fatalf("removal fallback target = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+
+	h.desired <- Desired{HeadsetConnected: true, USB: second}
+	if got := receiveSetCall(t, h.setter); got.target.USB != second {
+		t.Fatalf("replacement adapter target = %#v", got)
 	}
 	h.setter.results <- nil
 	receiveSucceeded(t, h.observer)
@@ -244,12 +294,12 @@ func TestControllerRetriesWithBackoffAndRecovers(t *testing.T) {
 func TestControllerCancelsObsoleteAction(t *testing.T) {
 	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
 	h.desired <- Desired{HeadsetConnected: true}
-	if got := receiveSetCall(t, h.setter); got.target != "headset" {
+	if got := receiveSetCall(t, h.setter); got.target.Name != "headset" {
 		t.Fatalf("first call = %#v", got)
 	}
 
 	h.desired <- Desired{}
-	if got := receiveSetCall(t, h.setter); got.target != "speakers" {
+	if got := receiveSetCall(t, h.setter); got.target.Name != "speakers" {
 		t.Fatalf("replacement call = %#v", got)
 	}
 	h.setter.results <- nil
@@ -273,7 +323,7 @@ func TestControllerCancelsObsoleteRetryTimer(t *testing.T) {
 	timer := <-h.clock.timers
 
 	h.desired <- Desired{}
-	if got := receiveSetCall(t, h.setter); got.target != "speakers" {
+	if got := receiveSetCall(t, h.setter); got.target.Name != "speakers" {
 		t.Fatalf("replacement call = %#v", got)
 	}
 	timer.timer.mu.Lock()

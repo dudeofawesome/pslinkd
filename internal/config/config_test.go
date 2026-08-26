@@ -9,7 +9,6 @@ import (
 
 const minimal = `
 audio:
-  headset_sink: headset
   fallback_sink: fallback
 `
 
@@ -51,23 +50,43 @@ logging:
 	}
 }
 
+func TestDecodeAutomaticAndOverrideTargets(t *testing.T) {
+	tests := map[string]string{
+		"automatic sink":   minimal,
+		"sink override":    minimal + "  headset_sink: headset\n",
+		"automatic source": minimal + "  fallback_source: fallback-input\n",
+		"source override": minimal +
+			"  headset_source: headset-input\n  fallback_source: fallback-input\n",
+	}
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode(strings.NewReader(input)); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestDecodeRejectsInvalidConfigurations(t *testing.T) {
 	tests := map[string]string{
-		"unknown key":        minimal + "unknown: true\n",
-		"duplicate key":      "audio:\n  headset_sink: a\n  headset_sink: b\n  fallback_sink: c\n",
-		"missing sink":       "audio:\n  headset_sink: a\n",
-		"empty sink":         "audio:\n  headset_sink: ''\n  fallback_sink: b\n",
-		"one source":         minimal + "  headset_source: input\n",
-		"duration type":      minimal + "polling:\n  interval: 200\n",
-		"invalid duration":   minimal + "polling:\n  interval: fast\n",
-		"short interval":     minimal + "polling:\n  interval: 49ms\n",
-		"long interval":      minimal + "polling:\n  interval: 11s\n",
-		"failures type":      minimal + "polling:\n  disconnect_failures: three\n",
-		"few failures":       minimal + "polling:\n  disconnect_failures: 0\n",
-		"many failures":      minimal + "polling:\n  disconnect_failures: 51\n",
-		"invalid level":      minimal + "logging:\n  level: verbose\n",
-		"implicit node name": "audio:\n  headset_sink: on\n  fallback_sink: false\n",
-		"multiple documents": minimal + "---\naudio: {}\n",
+		"unknown key":           minimal + "unknown: true\n",
+		"duplicate key":         "audio:\n  headset_sink: a\n  headset_sink: b\n  fallback_sink: c\n",
+		"missing sink":          "audio:\n  headset_sink: a\n",
+		"empty fallback sink":   "audio:\n  fallback_sink: ''\n",
+		"empty sink override":   "audio:\n  headset_sink: ''\n  fallback_sink: b\n",
+		"empty source override": minimal + "  headset_source: ''\n  fallback_source: b\n",
+		"empty fallback source": minimal + "  fallback_source: ''\n",
+		"one source":            minimal + "  headset_source: input\n",
+		"duration type":         minimal + "polling:\n  interval: 200\n",
+		"invalid duration":      minimal + "polling:\n  interval: fast\n",
+		"short interval":        minimal + "polling:\n  interval: 49ms\n",
+		"long interval":         minimal + "polling:\n  interval: 11s\n",
+		"failures type":         minimal + "polling:\n  disconnect_failures: three\n",
+		"few failures":          minimal + "polling:\n  disconnect_failures: 0\n",
+		"many failures":         minimal + "polling:\n  disconnect_failures: 51\n",
+		"invalid level":         minimal + "logging:\n  level: verbose\n",
+		"implicit node name":    "audio:\n  headset_sink: on\n  fallback_sink: false\n",
+		"multiple documents":    minimal + "---\naudio: {}\n",
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {

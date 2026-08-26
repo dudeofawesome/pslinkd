@@ -59,12 +59,16 @@ let
 
   configFile = yaml.generate "pslinkd-config.yaml" {
     audio = {
-      headset_sink = cfg.audio.headsetSink;
       fallback_sink = cfg.audio.fallbackSink;
+    }
+    // lib.optionalAttrs (cfg.audio.headsetSink != null) {
+      headset_sink = cfg.audio.headsetSink;
+    }
+    // lib.optionalAttrs (cfg.audio.fallbackSource != null) {
+      fallback_source = cfg.audio.fallbackSource;
     }
     // lib.optionalAttrs (cfg.audio.headsetSource != null) {
       headset_source = cfg.audio.headsetSource;
-      fallback_source = cfg.audio.fallbackSource;
     };
 
     polling = {
@@ -92,8 +96,9 @@ in
 
     audio = {
       headsetSink = mkOption {
-        type = nonEmptyString;
-        description = "Exact WirePlumber node.name for the headset sink.";
+        type = types.nullOr nonEmptyString;
+        default = null;
+        description = "Exact headset sink node.name, or null to discover it automatically.";
       };
 
       fallbackSink = mkOption {
@@ -104,7 +109,7 @@ in
       headsetSource = mkOption {
         type = types.nullOr nonEmptyString;
         default = null;
-        description = "Exact headset source node.name, when source routing is enabled.";
+        description = "Exact headset source node.name, or null to discover it automatically.";
       };
 
       fallbackSource = mkOption {
@@ -147,8 +152,8 @@ in
         message = "services.pslinkd is supported only on Linux";
       }
       {
-        assertion = (cfg.audio.headsetSource == null) == (cfg.audio.fallbackSource == null);
-        message = "services.pslinkd audio sources must be configured as a pair";
+        assertion = cfg.audio.headsetSource == null || cfg.audio.fallbackSource != null;
+        message = "services.pslinkd.audio.headsetSource requires audio.fallbackSource";
       }
       {
         assertion = intervalIsValid;

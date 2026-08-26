@@ -87,10 +87,16 @@ func candidateFromDevice(device *C.struct_udev_device) (Candidate, bool) {
 
 	syspath := C.udev_device_get_syspath(device)
 	devnode := C.udev_device_get_devnode(device)
-	if syspath == nil || devnode == nil {
+	usbSyspath := C.udev_device_get_syspath(usbDevice)
+	if syspath == nil || devnode == nil || usbSyspath == nil {
 		return Candidate{}, false
 	}
-	return Candidate{Syspath: C.GoString(syspath), Devnode: C.GoString(devnode)}, true
+	return Candidate{
+		Syspath:          C.GoString(syspath),
+		Devnode:          C.GoString(devnode),
+		USBParentSyspath: C.GoString(usbSyspath),
+		USBSerial:        sysattr(usbDevice, "serial"),
+	}, true
 }
 
 func sysattr(device *C.struct_udev_device, name string) string {

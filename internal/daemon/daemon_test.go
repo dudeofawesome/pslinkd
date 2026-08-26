@@ -88,6 +88,59 @@ func TestObserverWritesRequiredEventsAndRateLimitsFailures(t *testing.T) {
 	}
 }
 
+func TestObserverCarriesSelectedUSBIdentityIntoConnectedAudioAction(t *testing.T) {
+	observer := &observer{
+		logger:        logging.New(&bytes.Buffer{}, "debug", nil),
+		selections:    make(chan discovery.Candidate, 1),
+		desiredStates: make(chan audio.Desired, 1),
+	}
+	candidate := discovery.Candidate{
+		Syspath:          "/sys/hidraw/a",
+		Devnode:          "/dev/hidraw3",
+		USBParentSyspath: "/sys/usb/1-2",
+		USBSerial:        "adapter-a",
+	}
+	observer.SelectionChanged(candidate)
+	observer.ConnectionChanged(state.Connection{AdapterPresent: true, HeadsetConnected: true})
+	desired := <-observer.desiredStates
+	want := audio.USBIdentity{
+		Syspath:    candidate.USBParentSyspath,
+		Serial:     candidate.USBSerial,
+		HIDSyspath: candidate.Syspath,
+		HIDDevnode: candidate.Devnode,
+	}
+	if desired.USB != want {
+		t.Fatalf("desired USB identity = %#v, want %#v", desired.USB, want)
+	}
+}
+
+func TestObserverLogsAutomaticTargetAmbiguity(t *testing.T) {
+	var output bytes.Buffer
+	observer := &observer{logger: logging.New(&output, "debug", nil)}
+	priority := 100
+	observer.AutomaticTargetSelected(
+		audio.Sink,
+		audio.USBIdentity{
+			Syspath: "/sys/usb/1-2", Serial: "serial-a",
+			HIDSyspath: "/sys/hid/a", HIDDevnode: "/dev/hidraw3",
+		},
+		"20",
+		"alpha",
+		[]audio.ResolvedCandidate{
+			{Name: "alpha", Priority: &priority},
+			{Name: "zeta"},
+		},
+	)
+	records := decodeRecords(t, output.String())
+	if len(records) != 1 || records[0]["level"] != "warn" ||
+		records[0]["target_name"] != "alpha" || records[0]["audio_device_id"] != "20" {
+		t.Fatalf("automatic target record = %#v", records)
+	}
+	if names, ok := records[0]["candidate_names"].([]any); !ok || len(names) != 2 {
+		t.Fatalf("candidate names = %#v", records[0]["candidate_names"])
+	}
+}
+
 type lifecycleBackend struct {
 	monitorStarted chan struct{}
 	monitorStopped chan struct{}
@@ -128,7 +181,7 @@ type blockingSetter struct {
 	once     sync.Once
 }
 
-func (setter *blockingSetter) SetDefault(ctx context.Context, _ audio.Kind, _ string) error {
+func (setter *blockingSetter) SetDefault(ctx context.Context, _ audio.Kind, _ audio.Target) error {
 	setter.once.Do(func() { close(setter.started) })
 	<-ctx.Done()
 	close(setter.canceled)
@@ -213,7 +266,7 @@ func TestDiscoveryFailureIsLoggedAndReturned(t *testing.T) {
 
 type immediateSetter struct{}
 
-func (*immediateSetter) SetDefault(context.Context, audio.Kind, string) error { return nil }
+func (*immediateSetter) SetDefault(context.Context, audio.Kind, audio.Target) error { return nil }
 
 func testConfig() config.Config {
 	cfg := config.Defaults()

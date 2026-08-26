@@ -12,7 +12,19 @@ const (
 )
 
 type DefaultSetter interface {
-	SetDefault(context.Context, Kind, string) error
+	SetDefault(context.Context, Kind, Target) error
+}
+
+type USBIdentity struct {
+	Syspath    string
+	Serial     string
+	HIDSyspath string
+	HIDDevnode string
+}
+
+type Target struct {
+	Name string
+	USB  USBIdentity
 }
 
 type Targets struct {
@@ -24,6 +36,7 @@ type Targets struct {
 
 type Desired struct {
 	HeadsetConnected bool
+	USB              USBIdentity
 }
 
 type ActionObserver interface {
@@ -174,18 +187,18 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 }
 
 func (controller *Controller) apply(ctx context.Context, desired Desired) error {
-	sink := controller.targets.FallbackSink
-	source := controller.targets.FallbackSource
+	sink := Target{Name: controller.targets.FallbackSink}
+	source := Target{Name: controller.targets.FallbackSource}
 	if desired.HeadsetConnected {
-		sink = controller.targets.HeadsetSink
-		source = controller.targets.HeadsetSource
+		sink = Target{Name: controller.targets.HeadsetSink, USB: desired.USB}
+		source = Target{Name: controller.targets.HeadsetSource, USB: desired.USB}
 	}
 	if err := controller.setter.SetDefault(ctx, Sink, sink); err != nil {
-		return &TargetError{Kind: Sink, TargetName: sink, Err: err}
+		return &TargetError{Kind: Sink, TargetName: sink.Name, Err: err}
 	}
-	if source != "" {
+	if source.Name != "" || (desired.HeadsetConnected && controller.targets.FallbackSource != "") {
 		if err := controller.setter.SetDefault(ctx, Source, source); err != nil {
-			return &TargetError{Kind: Source, TargetName: source, Err: err}
+			return &TargetError{Kind: Source, TargetName: source.Name, Err: err}
 		}
 	}
 	return nil

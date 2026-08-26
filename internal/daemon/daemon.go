@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -72,6 +73,11 @@ func Run(
 			FallbackSource: cfg.Audio.FallbackSource,
 		},
 	}
+	if setter, ok := dependencies.AudioSetter.(interface {
+		SetResolverObserver(audio.ResolverObserver)
+	}); ok {
+		setter.SetResolverObserver(observer)
+	}
 
 	watcher := discovery.NewWatcher(dependencies.DiscoveryBackend, observer)
 	poller := polling.New(
@@ -131,10 +137,13 @@ type observer struct {
 	desiredStates chan audio.Desired
 	targets       audio.Targets
 	selected      discovery.Candidate
+	selectedMu    sync.Mutex
 	hidEpisode    atomic.Uint64
 }
 
 func (observer *observer) SelectionChanged(candidate discovery.Candidate) {
+	observer.selectedMu.Lock()
+	defer observer.selectedMu.Unlock()
 	if observer.selected.Devnode != "" && observer.selected != candidate {
 		observer.logger.Event(logging.Info, "adapter_removed", "PlayStation Link adapter removed", logging.Fields{
 			"device_path":     observer.selected.Devnode,
@@ -178,8 +187,51 @@ func (observer *observer) ConnectionChanged(connection state.Connection) {
 		"adapter_present":   connection.AdapterPresent,
 		"headset_connected": connection.HeadsetConnected,
 	})
+	observer.selectedMu.Lock()
+	selected := observer.selected
+	observer.selectedMu.Unlock()
 	sendLatest(observer.desiredStates, audio.Desired{
 		HeadsetConnected: connection.HeadsetConnected,
+		USB: audio.USBIdentity{
+			Syspath:    selected.USBParentSyspath,
+			Serial:     selected.USBSerial,
+			HIDSyspath: selected.Syspath,
+			HIDDevnode: selected.Devnode,
+		},
+	})
+}
+
+func (observer *observer) AutomaticTargetSelected(
+	kind audio.Kind,
+	usb audio.USBIdentity,
+	deviceID string,
+	selectedName string,
+	candidates []audio.ResolvedCandidate,
+) {
+	names := make([]string, len(candidates))
+	priorities := make([]any, len(candidates))
+	for index, candidate := range candidates {
+		names[index] = candidate.Name
+		if candidate.Priority != nil {
+			priorities[index] = *candidate.Priority
+		}
+	}
+	level := logging.Info
+	message := "automatic audio target selected"
+	if len(candidates) > 1 {
+		level = logging.Warn
+		message = "multiple eligible automatic audio targets found"
+	}
+	observer.logger.Event(level, "audio_target_selected", message, logging.Fields{
+		"target_kind":          kind,
+		"target_name":          selectedName,
+		"audio_device_id":      deviceID,
+		"hid_syspath":          usb.HIDSyspath,
+		"device_path":          usb.HIDDevnode,
+		"usb_parent_syspath":   usb.Syspath,
+		"usb_serial":           usb.Serial,
+		"candidate_names":      names,
+		"candidate_priorities": priorities,
 	})
 }
 

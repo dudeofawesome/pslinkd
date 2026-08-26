@@ -16,7 +16,6 @@ let
       enable = true;
       package = pslinkd;
       audio = {
-        headsetSink = "alsa_output.usb-Sony_PlayStation_Link-00.analog-stereo";
         fallbackSink = "alsa_output.pci-0000_03_00.1.hdmi-stereo";
       };
     };
@@ -40,6 +39,7 @@ let
 
     services.pslinkd = {
       audio = {
+        headsetSink = "alsa_output.usb-Sony_PlayStation_Link-00.analog-stereo";
         headsetSource = "alsa_input.usb-Sony_PlayStation_Link-00.mono-fallback";
         fallbackSource = "alsa_input.pci-0000_00_1f.3.analog-stereo";
       };
@@ -62,7 +62,6 @@ let
         services.pslinkd = {
           enable = true;
           package = pslinkd;
-          audio.fallbackSink = "fallback";
         };
       }
     ];
@@ -70,6 +69,10 @@ let
 
   invalidSourcePair = evaluate {
     services.pslinkd.audio.headsetSource = "headset-source";
+  };
+
+  automaticSource = evaluate {
+    services.pslinkd.audio.fallbackSource = "fallback-source";
   };
 
   invalidTiming = evaluate {
@@ -87,6 +90,9 @@ let
   execStart = unit.Service.ExecStart;
   restartTriggers = unit.Unit.X-Restart-Triggers;
   generatedConfig = builtins.elemAt restartTriggers 0;
+  automaticSourceConfig = builtins.elemAt
+    automaticSource.config.systemd.user.services.pslinkd.Unit.X-Restart-Triggers
+    0;
   renderedUnit = valid.config.xdg.configFile."systemd/user/pslinkd.service".source;
 
   inspection = {
@@ -107,6 +113,7 @@ let
 in
 assert forcesSuccessfully valid;
 assert forcesSuccessfully defaults;
+assert forcesSuccessfully automaticSource;
 assert !(forcesSuccessfully missingSink);
 assert !(forcesSuccessfully invalidSourcePair);
 assert !(forcesSuccessfully invalidTiming);
@@ -141,5 +148,9 @@ pkgs.runCommand "pslinkd-home-manager-check" { } ''
   grep -F 'interval: 0.2s' ${generatedConfig}
   grep -F 'disconnect_failures: 4' ${generatedConfig}
   grep -F 'level: debug' ${generatedConfig}
+  grep -F 'fallback_sink: alsa_output.pci-0000_03_00.1.hdmi-stereo' ${automaticSourceConfig}
+  grep -F 'fallback_source: fallback-source' ${automaticSourceConfig}
+  ! grep -F 'headset_sink:' ${automaticSourceConfig}
+  ! grep -F 'headset_source:' ${automaticSourceConfig}
   touch "$out"
 ''

@@ -65,17 +65,17 @@ change first.
 
 ## 6a. Automatic headset audio-target discovery
 
-- [ ] Make headset sink configuration optional while retaining exact-name
+- [x] Make headset sink configuration optional while retaining exact-name
   overrides; make fallback source alone enable automatic headset-source
   routing.
-- [ ] Retain the selected HID candidate's parent USB-device identity and carry
+- [x] Retain the selected HID candidate's parent USB-device identity and carry
   it through desired connected audio actions.
-- [ ] Inspect current WirePlumber audio devices and associate exactly the same
+- [x] Inspect current WirePlumber audio devices and associate exactly the same
   physical USB adapter without guessing from VID/PID alone.
-- [ ] Resolve matching sink/source nodes by current `device.id`, greatest
+- [x] Resolve matching sink/source nodes by current `device.id`, greatest
   `priority.session`, and lexicographic `node.name`, warning when several nodes
   are eligible.
-- [ ] Add configuration, resolver, policy, logging, and Home Manager acceptance
+- [x] Add configuration, resolver, policy, logging, and Home Manager acceptance
   tests for automatic discovery, explicit overrides, ambiguity, retry, replug,
   and multiple identical adapters.
 - [ ] Run the automatic-discovery Olympus release gates and record the matched

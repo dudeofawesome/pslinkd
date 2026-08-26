@@ -84,11 +84,13 @@ assumes the flake inputs are passed to Home Manager with
     enable = true;
 
     audio = {
-      headsetSink = "alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo";
       fallbackSink = "alsa_output.pci-0000_03_00.1.hdmi-surround-extra3";
 
-      # Optional; configure both or neither.
-      headsetSource = "alsa_input.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.mono-fallback";
+      # Optional exact-name overrides; null discovers from the selected adapter.
+      # headsetSink = "alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo";
+      # headsetSource = "alsa_input.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.mono-fallback";
+
+      # Optional; enables source routing and automatic headset-source discovery.
       fallbackSource = "alsa_input.pci-0000_00_1f.3.analog-stereo";
     };
 
@@ -148,11 +150,14 @@ Create `config.yaml`:
 
 ```yaml
 audio:
-    headset_sink: alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo
     fallback_sink: alsa_output.pci-0000_03_00.1.hdmi-surround-extra3
 
-    # Optional; configure both or neither.
+    # Optional exact-name overrides. Omit them to discover nodes belonging to
+    # the selected physical USB adapter.
+    # headset_sink: alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo
     # headset_source: alsa_input.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.mono-fallback
+
+    # Optional; enables source routing and automatic headset-source discovery.
     # fallback_source: alsa_input.pci-0000_00_1f.3.analog-stereo
 
 polling:
@@ -172,8 +177,8 @@ Run it in the same user session as WirePlumber:
 Without `--config`, pslinkd reads
 `$XDG_CONFIG_HOME/pslinkd/config.yaml`, falling back to the platform's standard
 user configuration directory. The document is strict YAML: unknown or
-duplicate keys, invalid types, missing sinks, incomplete source pairs, and
-out-of-range polling values are errors.
+duplicate keys, invalid types, a missing fallback sink, a headset-source
+override without a fallback source, and out-of-range polling values are errors.
 
 Standalone use still requires an administrator to create the `pslink` group,
 add the user, and activate the udev rule shipped at

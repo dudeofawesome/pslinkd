@@ -54,6 +54,19 @@ func TestSelectUsesLexicographicallyFirstSyspath(t *testing.T) {
 	}
 }
 
+func TestSelectionRetainsUSBIdentity(t *testing.T) {
+	candidate := Candidate{
+		Syspath:          "/sys/hidraw/a",
+		Devnode:          "/dev/hidraw4",
+		USBParentSyspath: "/sys/usb/1-2",
+		USBSerial:        "adapter-a",
+	}
+	selected, _ := Select([]Candidate{candidate})
+	if !reflect.DeepEqual(selected, candidate) {
+		t.Fatalf("selected = %#v, want %#v", selected, candidate)
+	}
+}
+
 func TestInitialEnumerationSelectsAndWarnsOnce(t *testing.T) {
 	backend := &fakeBackend{
 		candidates: []Candidate{

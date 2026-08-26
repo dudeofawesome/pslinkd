@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -55,33 +56,229 @@ func localeIndependentEnvironment(environment []string) []string {
 }
 
 type WPCTL struct {
-	runner  CommandRunner
-	timeout time.Duration
+	runner   CommandRunner
+	timeout  time.Duration
+	observer ResolverObserver
+}
+
+type ResolvedCandidate struct {
+	Name     string
+	Priority *int
+}
+
+type ResolverObserver interface {
+	AutomaticTargetSelected(Kind, USBIdentity, string, string, []ResolvedCandidate)
 }
 
 func NewWPCTL(runner CommandRunner, timeout time.Duration) *WPCTL {
 	return &WPCTL{runner: runner, timeout: timeout}
 }
 
-func (adapter *WPCTL) SetDefault(ctx context.Context, kind Kind, targetName string) error {
+func (adapter *WPCTL) SetResolverObserver(observer ResolverObserver) {
+	adapter.observer = observer
+}
+
+func (adapter *WPCTL) SetDefault(ctx context.Context, kind Kind, target Target) error {
 	plural, err := kind.plural()
 	if err != nil {
 		return err
 	}
 
-	result, err := adapter.run(ctx, "list", "audio", plural)
-	if err != nil {
-		return fmt.Errorf("list %ss for target %q: %w", kind, targetName, err)
-	}
-	id, err := resolveExactName(result.Stdout, targetName)
-	if err != nil {
-		return fmt.Errorf("resolve %s target %q: %w", kind, targetName, err)
+	var id string
+	if target.Name != "" {
+		result, err := adapter.run(ctx, "list", "audio", plural)
+		if err != nil {
+			return fmt.Errorf("list %ss for target %q: %w", kind, target.Name, err)
+		}
+		id, err = resolveExactName(result.Stdout, target.Name)
+		if err != nil {
+			return fmt.Errorf("resolve %s target %q: %w", kind, target.Name, err)
+		}
+	} else {
+		var selectedName string
+		var deviceID string
+		var candidates []ResolvedCandidate
+		id, selectedName, deviceID, candidates, err = adapter.resolveAutomatic(ctx, kind, target.USB)
+		if err != nil {
+			return fmt.Errorf("resolve automatic %s target: %w", kind, err)
+		}
+		if adapter.observer != nil {
+			adapter.observer.AutomaticTargetSelected(
+				kind, target.USB, deviceID, selectedName, candidates,
+			)
+		}
 	}
 
 	if _, err := adapter.run(ctx, "set-default", id); err != nil {
-		return fmt.Errorf("set default %s target %q: %w", kind, targetName, err)
+		return fmt.Errorf("set default %s target %q: %w", kind, target.Name, err)
 	}
 	return nil
+}
+
+func (adapter *WPCTL) resolveAutomatic(
+	ctx context.Context,
+	kind Kind,
+	usb USBIdentity,
+) (string, string, string, []ResolvedCandidate, error) {
+	if usb.Syspath == "" {
+		return "", "", "", nil, errors.New("selected adapter has no USB parent syspath")
+	}
+	deviceResult, err := adapter.run(ctx, "list", "audio", "devices")
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("list audio devices: %w", err)
+	}
+	deviceIDs, err := parseListIDs(deviceResult.Stdout)
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("parse audio devices: %w", err)
+	}
+	var matches []string
+	for _, deviceID := range deviceIDs {
+		properties, inspectErr := adapter.inspect(ctx, deviceID)
+		if inspectErr != nil {
+			return "", "", "", nil, inspectErr
+		}
+		path := properties["device.sysfs.path"]
+		if !belongsToUSB(path, usb.Syspath) {
+			continue
+		}
+		if serial := properties["device.serial"]; serial != "" && usb.Serial != "" && serial != usb.Serial {
+			return "", "", "", nil, fmt.Errorf(
+				"audio device %s serial %q does not match selected USB serial %q",
+				deviceID, serial, usb.Serial,
+			)
+		}
+		matches = append(matches, deviceID)
+	}
+	if len(matches) == 0 {
+		return "", "", "", nil, errors.New("no audio device belongs to selected USB adapter")
+	}
+	if len(matches) != 1 {
+		return "", "", "", nil, fmt.Errorf(
+			"selected USB adapter matched %d audio devices", len(matches),
+		)
+	}
+	deviceID := matches[0]
+	plural, _ := kind.plural()
+	nodeResult, err := adapter.run(ctx, "list", "audio", plural)
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("list audio %s: %w", plural, err)
+	}
+	nodeIDs, err := parseListIDs(nodeResult.Stdout)
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("parse audio %s: %w", plural, err)
+	}
+	type eligibleNode struct {
+		id string
+		ResolvedCandidate
+	}
+	var eligible []eligibleNode
+	for _, nodeID := range nodeIDs {
+		properties, inspectErr := adapter.inspect(ctx, nodeID)
+		if inspectErr != nil {
+			return "", "", "", nil, inspectErr
+		}
+		if properties["device.id"] != deviceID {
+			continue
+		}
+		name := properties["node.name"]
+		if name == "" {
+			return "", "", "", nil, fmt.Errorf("audio node %s has no node.name", nodeID)
+		}
+		var priority *int
+		if text, present := properties["priority.session"]; present {
+			value, parseErr := strconv.Atoi(text)
+			if parseErr != nil {
+				return "", "", "", nil, fmt.Errorf(
+					"audio node %s has invalid priority.session %q", nodeID, text,
+				)
+			}
+			priority = &value
+		}
+		eligible = append(eligible, eligibleNode{
+			id:                nodeID,
+			ResolvedCandidate: ResolvedCandidate{Name: name, Priority: priority},
+		})
+	}
+	if len(eligible) == 0 {
+		return "", "", "", nil, fmt.Errorf("audio device %s has no eligible %s nodes", deviceID, kind)
+	}
+	sort.Slice(eligible, func(left, right int) bool {
+		leftPriority := eligible[left].Priority
+		rightPriority := eligible[right].Priority
+		if leftPriority == nil && rightPriority != nil {
+			return false
+		}
+		if leftPriority != nil && rightPriority == nil {
+			return true
+		}
+		if leftPriority != nil && *leftPriority != *rightPriority {
+			return *leftPriority > *rightPriority
+		}
+		return eligible[left].Name < eligible[right].Name
+	})
+	candidates := make([]ResolvedCandidate, len(eligible))
+	for index := range eligible {
+		candidates[index] = eligible[index].ResolvedCandidate
+	}
+	return eligible[0].id, eligible[0].Name, deviceID, candidates, nil
+}
+
+func (adapter *WPCTL) inspect(ctx context.Context, id string) (map[string]string, error) {
+	result, err := adapter.run(ctx, "inspect", id)
+	if err != nil {
+		return nil, fmt.Errorf("inspect object %s: %w", id, err)
+	}
+	properties, err := parseInspectProperties(result.Stdout)
+	if err != nil {
+		return nil, fmt.Errorf("inspect object %s: %w", id, err)
+	}
+	return properties, nil
+}
+
+func parseListIDs(output []byte) ([]string, error) {
+	lines := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	ids := make([]string, 0, len(lines))
+	for lineNumber, line := range lines {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			return nil, fmt.Errorf("malformed wpctl list line %d", lineNumber+1)
+		}
+		id := strings.TrimSpace(fields[0])
+		if _, err := strconv.ParseUint(id, 10, 64); err != nil {
+			return nil, fmt.Errorf("invalid object ID %q on wpctl list line %d", id, lineNumber+1)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func parseInspectProperties(output []byte) (map[string]string, error) {
+	properties := make(map[string]string)
+	for lineNumber, line := range strings.Split(string(output), "\n") {
+		key, value, found := strings.Cut(strings.TrimSpace(line), " = ")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(strings.TrimPrefix(key, "*"))
+		value = strings.TrimSpace(value)
+		if strings.HasPrefix(value, "\"") {
+			decoded, err := strconv.Unquote(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid quoted value on inspect line %d", lineNumber+1)
+			}
+			value = decoded
+		}
+		properties[key] = value
+	}
+	return properties, nil
+}
+
+func belongsToUSB(path, usbSyspath string) bool {
+	return path == usbSyspath || strings.HasPrefix(path, usbSyspath+"/") ||
+		strings.HasPrefix(path, usbSyspath+":")
 }
 
 func (adapter *WPCTL) run(ctx context.Context, args ...string) (CommandResult, error) {

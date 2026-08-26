@@ -26,7 +26,7 @@ type Config struct {
 }
 
 type Audio struct {
-	HeadsetSink    string `yaml:"headset_sink"`
+	HeadsetSink    string `yaml:"headset_sink,omitempty"`
 	FallbackSink   string `yaml:"fallback_sink"`
 	HeadsetSource  string `yaml:"headset_source,omitempty"`
 	FallbackSource string `yaml:"fallback_source,omitempty"`
@@ -132,6 +132,11 @@ func validateStringScalars(data []byte) error {
 		"polling.interval":      true,
 		"logging.level":         true,
 	}
+	optionalNonempty := map[string]bool{
+		"audio.headset_sink":    true,
+		"audio.headset_source":  true,
+		"audio.fallback_source": true,
+	}
 	var walk func(*yaml.Node, string) error
 	walk = func(node *yaml.Node, path string) error {
 		if node.Kind != yaml.MappingNode {
@@ -147,6 +152,9 @@ func validateStringScalars(data []byte) error {
 			if stringPaths[childPath] && value.Tag != "!!str" {
 				return fmt.Errorf("%s must be a string", childPath)
 			}
+			if optionalNonempty[childPath] && strings.TrimSpace(value.Value) == "" {
+				return fmt.Errorf("%s must be nonempty when set", childPath)
+			}
 			if err := walk(value, childPath); err != nil {
 				return err
 			}
@@ -157,17 +165,14 @@ func validateStringScalars(data []byte) error {
 }
 
 func (cfg Config) Validate() error {
-	if strings.TrimSpace(cfg.Audio.HeadsetSink) == "" {
-		return errors.New("audio.headset_sink must be nonempty")
-	}
 	if strings.TrimSpace(cfg.Audio.FallbackSink) == "" {
 		return errors.New("audio.fallback_sink must be nonempty")
 	}
 
 	hasHeadsetSource := strings.TrimSpace(cfg.Audio.HeadsetSource) != ""
 	hasFallbackSource := strings.TrimSpace(cfg.Audio.FallbackSource) != ""
-	if hasHeadsetSource != hasFallbackSource {
-		return errors.New("audio headset_source and fallback_source must be supplied as a pair")
+	if hasHeadsetSource && !hasFallbackSource {
+		return errors.New("audio.headset_source requires audio.fallback_source")
 	}
 
 	if cfg.Polling.Interval.Duration < 50*time.Millisecond ||
