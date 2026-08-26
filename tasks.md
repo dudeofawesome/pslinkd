@@ -8,7 +8,7 @@ change first.
 
 - [x] Initialize the Go module and choose the minimum Go version supplied by the
   pinned Nix development environment.
-- [ ] Add only the required dependencies: strict YAML decoding, libudev Go/cgo
+- [x] Add only the required dependencies: strict YAML decoding, libudev Go/cgo
   bindings, and Linux syscall support.
 - [x] Populate `devenv.nix` with Go, cgo/pkg-config, libudev, WirePlumber, and
   repository formatting/test tools.
@@ -35,22 +35,22 @@ change first.
 
 ## 4. libudev discovery and device lifecycle
 
-- [ ] Enumerate matching hidraw devices at startup using libudev.
-- [ ] Subscribe to processed libudev add/remove events and filter them to the
+- [x] Enumerate matching hidraw devices at startup using libudev.
+- [x] Subscribe to processed libudev add/remove events and filter them to the
   fixed device profile.
-- [ ] Implement deterministic first-syspath selection and multiple-candidate
+- [x] Implement deterministic first-syspath selection and multiple-candidate
   warnings.
-- [ ] Recover from removal/replug and monitor failure without retaining stale
+- [x] Recover from removal/replug and monitor failure without retaining stale
   file descriptors or state.
-- [ ] Add discovery tests using an injected fake enumerator/monitor.
+- [x] Add discovery tests using an injected fake enumerator/monitor.
 
 ## 5. Polling and normalized state machine
 
-- [ ] Build a cancellable polling loop independent of audio actions.
-- [ ] Implement immediate connect, configurable consecutive-failure disconnect,
+- [x] Build a cancellable polling loop independent of audio actions.
+- [x] Implement immediate connect, configurable consecutive-failure disconnect,
   and immediate physical-removal behavior.
-- [ ] Implement initial/fallback state and normalized connection transitions.
-- [ ] Add fake-clock state-machine tests for every acceptance sequence.
+- [x] Implement initial/fallback state and normalized connection transitions.
+- [x] Add fake-clock state-machine tests for every acceptance sequence.
 
 ## 6. WirePlumber adapter and policy
 
@@ -92,7 +92,7 @@ change first.
 - [ ] Add the package to `home.packages` and generate strict YAML plus a
   systemd user unit with config/package `X-Restart-Triggers` for the owning
   account.
-- [ ] Install the scoped `054c:0ecc` hidraw udev rule in the package without
+- [x] Install the scoped `054c:0ecc` hidraw udev rule in the package without
   trying to activate it from Home Manager.
 - [ ] Apply compatible unit hardening without hiding hidraw, the udev monitor,
   or the user PipeWire socket.

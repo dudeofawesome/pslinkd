@@ -8,10 +8,13 @@
       nixfmt-rfc-style
       pkg-config
     ])
-    ++ lib.optionals pkgs.stdenv.isLinux (with pkgs; [
-      systemd
-      wireplumber
-    ]);
+    ++ lib.optionals pkgs.stdenv.isLinux (
+      with pkgs;
+      [
+        systemd
+        wireplumber
+      ]
+    );
 
   env.CGO_ENABLED = "1";
 
