@@ -64,9 +64,10 @@ func (clock *fakeRetryClock) NewTimer(delay time.Duration) Timer {
 }
 
 type actionEvent struct {
-	desired Desired
-	attempt int
-	err     error
+	revision uint64
+	desired  Desired
+	attempt  int
+	err      error
 }
 
 type fakeActionObserver struct {
@@ -74,12 +75,17 @@ type fakeActionObserver struct {
 	retrying  chan actionEvent
 }
 
-func (observer *fakeActionObserver) AudioActionSucceeded(desired Desired, attempt int) {
-	observer.succeeded <- actionEvent{desired: desired, attempt: attempt}
+func (observer *fakeActionObserver) AudioActionSucceeded(revision uint64, desired Desired, attempt int) {
+	observer.succeeded <- actionEvent{revision: revision, desired: desired, attempt: attempt}
 }
 
-func (observer *fakeActionObserver) AudioActionRetrying(desired Desired, attempt int, err error) {
-	observer.retrying <- actionEvent{desired: desired, attempt: attempt, err: err}
+func (observer *fakeActionObserver) AudioActionRetrying(
+	revision uint64,
+	desired Desired,
+	attempt int,
+	err error,
+) {
+	observer.retrying <- actionEvent{revision: revision, desired: desired, attempt: attempt, err: err}
 }
 
 type controllerHarness struct {

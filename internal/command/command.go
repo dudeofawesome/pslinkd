@@ -10,9 +10,9 @@ import (
 	"github.com/dudeofawesome/pslinkd/internal/config"
 )
 
-var errDaemonNotImplemented = errors.New("daemon runtime is not implemented yet")
+type Run func(config.Config) error
 
-func Execute(args []string, getenv func(string) string) error {
+func Execute(args []string, getenv func(string) string, run Run) error {
 	if len(args) == 0 || args[0] != "run" {
 		return errors.New("usage: pslinkd run [--config PATH]")
 	}
@@ -35,9 +35,9 @@ func Execute(args []string, getenv func(string) string) error {
 			return err
 		}
 	}
-	if _, err := config.Load(path); err != nil {
+	cfg, err := config.Load(path)
+	if err != nil {
 		return err
 	}
-
-	return errDaemonNotImplemented
+	return run(cfg)
 }

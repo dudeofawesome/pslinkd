@@ -27,8 +27,22 @@ type Desired struct {
 }
 
 type ActionObserver interface {
-	AudioActionSucceeded(Desired, int)
-	AudioActionRetrying(Desired, int, error)
+	AudioActionSucceeded(uint64, Desired, int)
+	AudioActionRetrying(uint64, Desired, int, error)
+}
+
+type TargetError struct {
+	Kind       Kind
+	TargetName string
+	Err        error
+}
+
+func (err *TargetError) Error() string {
+	return fmt.Sprintf("route %s target %q: %v", err.Kind, err.TargetName, err.Err)
+}
+
+func (err *TargetError) Unwrap() error {
+	return err.Err
 }
 
 type Timer interface {
@@ -135,10 +149,19 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 			actionCancel()
 			actionCancel = nil
 			if result.err == nil {
-				controller.observer.AudioActionSucceeded(result.desired, result.attempt)
+				controller.observer.AudioActionSucceeded(
+					result.revision,
+					result.desired,
+					result.attempt,
+				)
 				continue
 			}
-			controller.observer.AudioActionRetrying(result.desired, result.attempt, result.err)
+			controller.observer.AudioActionRetrying(
+				result.revision,
+				result.desired,
+				result.attempt,
+				result.err,
+			)
 			retryTimer = controller.clock.NewTimer(controller.retryDelay(result.attempt))
 			retry = retryTimer.C()
 		case <-retry:
@@ -158,11 +181,11 @@ func (controller *Controller) apply(ctx context.Context, desired Desired) error 
 		source = controller.targets.HeadsetSource
 	}
 	if err := controller.setter.SetDefault(ctx, Sink, sink); err != nil {
-		return err
+		return &TargetError{Kind: Sink, TargetName: sink, Err: err}
 	}
 	if source != "" {
 		if err := controller.setter.SetDefault(ctx, Source, source); err != nil {
-			return err
+			return &TargetError{Kind: Source, TargetName: source, Err: err}
 		}
 	}
 	return nil

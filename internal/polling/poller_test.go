@@ -60,6 +60,7 @@ func (reader *scriptedReader) Close() error {
 type recordingObserver struct {
 	connections chan state.Connection
 	failures    chan error
+	recoveries  chan string
 }
 
 func (observer *recordingObserver) ConnectionChanged(connection state.Connection) {
@@ -68,6 +69,10 @@ func (observer *recordingObserver) ConnectionChanged(connection state.Connection
 
 func (observer *recordingObserver) HIDFailure(_ string, err error) {
 	observer.failures <- err
+}
+
+func (observer *recordingObserver) HIDRecovered(path string) {
+	observer.recoveries <- path
 }
 
 type harness struct {
@@ -85,6 +90,7 @@ func newHarness(t *testing.T, readers map[string]*scriptedReader) *harness {
 	observer := &recordingObserver{
 		connections: make(chan state.Connection, 20),
 		failures:    make(chan error, 20),
+		recoveries:  make(chan string, 20),
 	}
 	h := &harness{
 		clock:      clock,
@@ -212,6 +218,9 @@ func TestSuccessfulConnectionResetsFailureCount(t *testing.T) {
 		<-h.observer.failures
 	}
 	h.tick()
+	if recovered := <-h.observer.recoveries; recovered != "/dev/hidraw1" {
+		t.Fatalf("recovered path = %q", recovered)
+	}
 	h.tick()
 	<-h.observer.failures
 	assertNoConnection(t, h.observer)
@@ -300,6 +309,7 @@ func TestCancellationClosesInFlightReaderPromptly(t *testing.T) {
 	observer := &recordingObserver{
 		connections: make(chan state.Connection, 1),
 		failures:    make(chan error, 1),
+		recoveries:  make(chan string, 1),
 	}
 	selections := make(chan discovery.Candidate)
 	ctx, cancel := context.WithCancel(context.Background())

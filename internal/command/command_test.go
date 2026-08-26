@@ -3,8 +3,9 @@ package command
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/dudeofawesome/pslinkd/internal/config"
 )
 
 func TestExecuteCLIValidation(t *testing.T) {
@@ -15,7 +16,9 @@ func TestExecuteCLIValidation(t *testing.T) {
 		{"run", "--unknown"},
 	}
 	for _, args := range tests {
-		if err := Execute(args, func(string) string { return "" }); err == nil {
+		if err := Execute(args, func(string) string { return "" }, func(config.Config) error {
+			return nil
+		}); err == nil {
 			t.Fatalf("Execute(%q) unexpectedly succeeded", args)
 		}
 	}
@@ -27,9 +30,16 @@ func TestExecuteConfigOverrideIsValidated(t *testing.T) {
 	if err := os.WriteFile(path, []byte("audio:\n  headset_sink: h\n  fallback_sink: f\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := Execute([]string{"run", "--config", path}, func(string) string { return "" })
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected validated config to reach runtime, got %v", err)
+	called := false
+	err := Execute([]string{"run", "--config", path}, func(string) string { return "" }, func(cfg config.Config) error {
+		called = true
+		if cfg.Audio.HeadsetSink != "h" || cfg.Audio.FallbackSink != "f" {
+			t.Fatalf("config = %#v", cfg)
+		}
+		return nil
+	})
+	if err != nil || !called {
+		t.Fatalf("validated config did not reach runtime: called=%v, err=%v", called, err)
 	}
 }
 
@@ -46,13 +56,32 @@ func TestExecuteUsesXDGDefault(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	called := false
 	err := Execute([]string{"run"}, func(key string) string {
 		if key == "XDG_CONFIG_HOME" {
 			return dir
 		}
 		return ""
+	}, func(config.Config) error {
+		called = true
+		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected XDG config to reach runtime, got %v", err)
+	if err != nil || !called {
+		t.Fatalf("XDG config did not reach runtime: called=%v, err=%v", called, err)
+	}
+}
+
+func TestExecuteRejectsInvalidConfigBeforeRuntime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("audio:\n  headset_sink: h\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	err := Execute([]string{"run", "--config", path}, func(string) string { return "" }, func(config.Config) error {
+		called = true
+		return nil
+	})
+	if err == nil || called {
+		t.Fatalf("invalid config: called=%v, err=%v", called, err)
 	}
 }

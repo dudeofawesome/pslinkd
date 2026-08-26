@@ -17,10 +17,10 @@ change first.
 
 ## 2. Configuration and CLI
 
-- [ ] Implement `pslinkd run [--config PATH]` and XDG config-path resolution.
+- [x] Implement `pslinkd run [--config PATH]` and XDG config-path resolution.
 - [x] Implement the strict YAML schema and all defaults/bounds from
   `specs/configuration.md`.
-- [ ] Validate the full config before constructing discovery or audio adapters.
+- [x] Validate the full config before constructing discovery or audio adapters.
 - [x] Add configuration and CLI acceptance tests.
 
 ## 3. HID device profile and connection decoder
@@ -65,16 +65,16 @@ change first.
 
 ## 7. Logging and daemon lifecycle
 
-- [ ] Implement JSON-line structured logging and the required event names and
+- [x] Implement JSON-line structured logging and the required event names and
   fields.
-- [ ] Rate-limit repetitive expected HID/audio errors while logging recovery.
-- [ ] Handle SIGINT/SIGTERM and close/cancel discovery, HID, retries, and child
+- [x] Rate-limit repetitive expected HID/audio errors while logging recovery.
+- [x] Handle SIGINT/SIGTERM and close/cancel discovery, HID, retries, and child
   processes within the stop timeout.
-- [ ] Add lifecycle and log-schema tests.
+- [x] Add lifecycle and log-schema tests.
 
 ## 8. Nix package and flake
 
-- [ ] Implement `packages/pslinkd/package.nix` with `buildGoModule`, cgo,
+- [x] Implement `packages/pslinkd/package.nix` with `buildGoModule`, cgo,
   libudev, tests, metadata, and a deterministic runtime path for `wpctl`.
 - [ ] Complete package/default outputs for `x86_64-linux` and `aarch64-linux`.
 - [ ] Export the development shell, formatter if selected, and package checks.

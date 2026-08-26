@@ -29,6 +29,7 @@ type Clock interface {
 type Observer interface {
 	ConnectionChanged(state.Connection)
 	HIDFailure(string, error)
+	HIDRecovered(string)
 }
 
 type Poller struct {
@@ -41,6 +42,7 @@ type Poller struct {
 	candidate    discovery.Candidate
 	hasSelection bool
 	reader       Reader
+	hadFailure   bool
 }
 
 func New(
@@ -132,6 +134,7 @@ func (poller *Poller) waitForRead(
 			poller.failedSample(err)
 			return false
 		}
+		poller.recovered()
 		poller.sample(report.Connected)
 		return false
 	}
@@ -150,6 +153,7 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 
 	poller.hasSelection = true
 	poller.candidate = candidate
+	poller.hadFailure = false
 	if candidate.Devnode == "" {
 		if connection, changed := poller.debouncer.AdapterAbsent(); changed {
 			poller.observer.ConnectionChanged(connection)
@@ -160,8 +164,17 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 }
 
 func (poller *Poller) failedSample(err error) {
+	poller.hadFailure = true
 	poller.observer.HIDFailure(poller.candidate.Devnode, err)
 	poller.sample(false)
+}
+
+func (poller *Poller) recovered() {
+	if !poller.hadFailure {
+		return
+	}
+	poller.hadFailure = false
+	poller.observer.HIDRecovered(poller.candidate.Devnode)
 }
 
 func (poller *Poller) sample(connected bool) {
