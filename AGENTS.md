@@ -1,5 +1,9 @@
 Run non-basic commands from inside the devenv (`devenv shell --quiet -- {command}`), which will not work in a sandbox.
 
+# Git-backed builds
+
+- Newly added files **must** be staged before attempting to build so Git-backed Nix flakes include them in the source tree.
+
 # Spec-driven development
 
 ## General Rules
