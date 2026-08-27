@@ -110,17 +110,20 @@ func TestWPCTLRefreshesEphemeralIDForEveryAction(t *testing.T) {
 }
 
 func TestWPCTLAutomaticallyAssociatesUSBAndSelectsHighestPriorityNode(t *testing.T) {
-	usb := USBIdentity{Syspath: "/sys/devices/usb1/1-2", Serial: "selected-serial"}
+	usb := USBIdentity{
+		Syspath: "/sys/devices/pci0000:00/0000:69:00.0/usb3/3-4",
+		Serial:  "selected-serial",
+	}
 	runner := &fakeCommandRunner{responses: []commandResponse{
 		{result: CommandResult{Stdout: []byte(
 			"10\tother-adapter\tAudio/Device\n20\tselected-adapter\tAudio/Device\n",
 		)}},
 		{result: CommandResult{Stdout: []byte(
-			"device.sysfs.path = \"/sys/devices/usb1/1-3/1-3:1.0/sound/card1\"\n" +
+			"device.sysfs.path = \"/devices/pci0000:00/0000:69:00.0/usb3/3-5/3-5:1.0/sound/card1\"\n" +
 				"device.vendor.id = \"054c\"\ndevice.product.id = \"0ecc\"\n",
 		)}},
 		{result: CommandResult{Stdout: []byte(
-			"device.sysfs.path = \"/sys/devices/usb1/1-2/1-2:1.0/sound/card2\"\n" +
+			"device.sysfs.path = \"/devices/pci0000:00/0000:69:00.0/usb3/3-4/3-4:1.0/sound/card2\"\n" +
 				"device.serial = \"selected-serial\"\n",
 		)}},
 		{result: CommandResult{Stdout: []byte(
@@ -158,6 +161,48 @@ func TestWPCTLAutomaticallyAssociatesUSBAndSelectsHighestPriorityNode(t *testing
 	if priorities[0].Priority == nil || *priorities[0].Priority != 100 ||
 		priorities[2].Priority != nil {
 		t.Fatalf("ordered candidates = %#v", priorities)
+	}
+}
+
+func TestBelongsToUSBNormalizesSysfsMountPrefixAndPreservesBoundaries(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		usbSyspath string
+		want       bool
+	}{
+		{
+			name:       "PipeWire omits sys mount prefix",
+			path:       "/devices/pci0000:00/usb3/3-4/3-4:1.0/sound/card3",
+			usbSyspath: "/sys/devices/pci0000:00/usb3/3-4",
+			want:       true,
+		},
+		{
+			name:       "both paths include sys mount prefix",
+			path:       "/sys/devices/pci0000:00/usb3/3-4/3-4:1.0/sound/card3",
+			usbSyspath: "/sys/devices/pci0000:00/usb3/3-4",
+			want:       true,
+		},
+		{
+			name:       "audio interface is a sibling of HID interface",
+			path:       "/devices/pci0000:00/usb3/3-4/3-4:1.0/sound/card3",
+			usbSyspath: "/sys/devices/pci0000:00/usb3/3-4/3-4:1.3",
+			want:       false,
+		},
+		{
+			name:       "neighboring USB device does not share component prefix",
+			path:       "/devices/pci0000:00/usb3/3-40/3-40:1.0/sound/card4",
+			usbSyspath: "/sys/devices/pci0000:00/usb3/3-4",
+			want:       false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := belongsToUSB(test.path, test.usbSyspath); got != test.want {
+				t.Fatalf("belongsToUSB(%q, %q) = %t, want %t",
+					test.path, test.usbSyspath, got, test.want)
+			}
+		})
 	}
 }
 

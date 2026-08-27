@@ -277,8 +277,17 @@ func parseInspectProperties(output []byte) (map[string]string, error) {
 }
 
 func belongsToUSB(path, usbSyspath string) bool {
+	path = normalizeSysfsPath(path)
+	usbSyspath = normalizeSysfsPath(usbSyspath)
 	return path == usbSyspath || strings.HasPrefix(path, usbSyspath+"/") ||
 		strings.HasPrefix(path, usbSyspath+":")
+}
+
+func normalizeSysfsPath(path string) string {
+	if strings.HasPrefix(path, "/sys/") {
+		return strings.TrimPrefix(path, "/sys")
+	}
+	return path
 }
 
 func (adapter *WPCTL) run(ctx context.Context, args ...string) (CommandResult, error) {

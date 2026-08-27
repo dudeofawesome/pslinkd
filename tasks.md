@@ -78,6 +78,9 @@ change first.
 - [x] Add configuration, resolver, policy, logging, and Home Manager acceptance
   tests for automatic discovery, explicit overrides, ambiguity, retry, replug,
   and multiple identical adapters.
+- [x] Normalize libudev `/sys/devices/...` and PipeWire `/devices/...` sysfs
+  paths before physical-adapter ownership checks, with realistic regression
+  tests that preserve path-component boundaries.
 - [ ] Run the automatic-discovery Olympus release gates and record the matched
   HID, audio-device, sink, and source identities.
 
