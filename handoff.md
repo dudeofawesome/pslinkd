@@ -89,6 +89,14 @@ Relevant fields in report `0xB0`:
 | Byte 43 | high nibble | Microphone mute state; see validation note below |
 | Byte 44 | `0..15` | Absolute headset volume |
 
+### Subsequent battery finding
+
+After the original inspection, `Jprnp/pslink-libusb` independently decoded
+battery state for the same CFI-ZWA2 / `054c:0ecc` adapter on firmware 1.43. It
+reads feature report `0x82` over endpoint 0 and treats byte 3 as a `0..15`
+battery level, linearly presented as a percentage. See `specs/v1.2.md` for the
+chosen pslinkd behavior and the required Olympus firmware-1.38 validation.
+
 ### Connection behavior verified on Olympus
 
 With the headset powered on and the adapter indicator solid white:

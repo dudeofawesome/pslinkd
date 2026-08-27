@@ -17,6 +17,7 @@ chosen design.
 - [testing.md](testing.md): automated and Olympus hardware acceptance
   criteria.
 - [v1.1.md](v1.1.md): deferred button, volume, and microphone interactions.
+- [v1.2.md](v1.2.md): deferred headset battery reporting.
 
 ## Requirement language
 
@@ -47,3 +48,9 @@ adapter models.
 V1.1 adds the complete button-interaction vertical slice defined in
 [v1.1.md](v1.1.md). V1 implementation and release criteria MUST NOT depend on
 that deferred functionality.
+
+## V1.2 scope
+
+V1.2 adds change-only structured battery reporting from feature report `0x82`
+as defined in [v1.2.md](v1.2.md). It is independent of v1.1, and v1 and v1.1
+implementation and release criteria MUST NOT depend on it.

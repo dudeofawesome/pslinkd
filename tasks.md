@@ -147,7 +147,20 @@ change first.
 - [ ] Add every automated acceptance test in `specs/v1.1.md`.
 - [ ] Run and record every Olympus v1.1 release gate before releasing v1.1.
 
-## 12. Other post-v1 validation and features
+## 12. V1.2 battery reporting
+
+- [ ] Generalize the hidraw feature reader to request report `0x82` without
+  changing the existing `0xB0` control-endpoint behavior.
+- [ ] Decode the discrete battery level and derived percentage defined in
+  `specs/v1.2.md`.
+- [ ] Poll battery immediately after connection and every five seconds without
+  feeding failures into connection debouncing or audio routing.
+- [ ] Emit change-only `headset_battery_changed` and
+  `headset_battery_unavailable` structured records.
+- [ ] Add every automated acceptance test in `specs/v1.2.md`.
+- [ ] Run and record every Olympus v1.2 release gate before releasing v1.2.
+
+## 13. Other post-v1 validation and features
 
 - [ ] Test restart, suspend/resume, auto-off behavior, and sustained audio
   monitoring.
