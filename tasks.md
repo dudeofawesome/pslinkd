@@ -13,7 +13,7 @@ change first.
 - [x] Populate `devenv.nix` with Go, cgo/pkg-config, libudev, WirePlumber, and
   repository formatting/test tools.
 - [x] Add repository-wide Go test, formatting, and vet commands documented in
-  the README.
+  `CONTRIBUTING.md`.
 
 ## 2. Configuration and CLI
 

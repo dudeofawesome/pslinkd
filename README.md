@@ -2,7 +2,7 @@
 
 pslinkd is a per-user Linux daemon that switches the WirePlumber default audio
 route when a Sony PULSE Elite headset connects to or disconnects from its
-PlayStation Link adapter. Also reports headset button, volume, and
+PlayStation Link adapter. It also reports headset button, volume, and
 microphone-state changes and can optionally converge absolute volume and mute
 state through WirePlumber.
 
@@ -14,7 +14,7 @@ user choices.
 
 ## Supported hardware
 
-V1 supports exactly this device profile:
+pslinkd supports exactly this device profile:
 
 |                |                             |
 | -------------- | --------------------------- |
@@ -55,7 +55,7 @@ Configure a fallback sink. Headset targets are automatically associated with
 the selected physical adapter unless exact-name overrides are supplied. A
 fallback source enables source routing and automatic headset-source discovery.
 
-## Home Manager
+## Install with Home Manager
 
 Add pslinkd to the inputs of the flake that owns your Home Manager
 configuration:
@@ -145,7 +145,7 @@ This is host integration, not a NixOS service module. pslinkd remains a
 non-root user process and never invokes `sudo` or attempts to repair system
 permissions.
 
-## Standalone use
+## Build and run standalone
 
 Build the Linux package directly from the flake:
 
@@ -227,7 +227,7 @@ If an audio target cannot be resolved, compare `target_name` in the retry log
 with the exact `node.name` reported by `wpctl list`. Numeric IDs must not be put
 in configuration.
 
-## Behavior and non-goals
+## Behavior
 
 At the defaults, one connected report selects the headset route immediately.
 Three consecutive unsuccessful 200 ms samples select the fallback route.
@@ -237,47 +237,3 @@ restarting the daemon.
 After pslinkd successfully handles a transition, a later default selected in
 GNOME or another client is left alone until the next headset transition or
 daemon start.
-
-V1.1 does not:
-
-- read or detach the adapter's USB interrupt endpoint;
-- force-move pinned streams;
-- periodically enforce a default route;
-- execute relative audio actions directly from button presses;
-- run arbitrary hooks or expose an IPC API;
-- manage several adapters concurrently;
-- configure PipeWire, WirePlumber, users, groups, udev, or lingering; or
-- support configurable or unvalidated USB device IDs.
-
-## Development
-
-The repository uses devenv as its only development environment. It supplies Go
-1.25, cgo, libudev on Linux, WirePlumber, Nix, and the Nix formatter. Run
-project commands through it:
-
-```console
-devenv shell --quiet -- go test ./...
-devenv shell --quiet -- gofmt -w .
-devenv shell --quiet -- go vet ./...
-```
-
-The `check` script runs formatting, tests, and vet together:
-
-```console
-devenv shell --quiet -- check
-```
-
-Flake checks cover the Go package, Home Manager evaluation and failure cases,
-the rendered user unit and YAML, restart triggers, and the scoped udev rule.
-Build the checks for an available Linux builder and evaluate all declared
-systems with:
-
-```console
-nix flake check --all-systems --no-build
-```
-
-Use `x86_64-linux` for the first command when that is the available builder.
-Omit `--no-build` from the second command when builders for both Linux systems
-are configured.
-
-The authoritative behavior and acceptance criteria live in [`specs`](specs).
