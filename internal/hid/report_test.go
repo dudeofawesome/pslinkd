@@ -69,8 +69,15 @@ func TestFeatureRequest(t *testing.T) {
 }
 
 func TestExpectedReadErrorClassification(t *testing.T) {
-	if !IsExpectedReadError(syscall.EPIPE) {
-		t.Fatal("EPIPE should be expected")
+	for _, expected := range []error{
+		syscall.EPIPE,
+		syscall.ENODEV,
+		syscall.EIO,
+		syscall.ETIMEDOUT,
+	} {
+		if !IsExpectedReadError(expected) {
+			t.Errorf("%v should be expected", expected)
+		}
 	}
 	if IsExpectedReadError(syscall.EACCES) {
 		t.Fatal("EACCES should not be an expected sample failure")

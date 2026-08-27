@@ -76,8 +76,11 @@ No test or production path may invoke `pactl` or a stream-move command.
 
 Tests MUST cover graceful cancellation of polling, retry timers, and
 subprocesses; recovery/failure behavior of the discovery monitor; and valid
-one-object-per-line JSON for all required state/action events. Repeated expected
-HID and audio failures MUST demonstrate log rate limiting.
+one-object-per-line JSON for all required state/action events. Expected HID
+disconnect errors MUST contribute failure samples without emitting
+`hid_failure` or `hid_recovered`; unexpected HID failures and repeated audio
+failures MUST demonstrate log rate limiting, and unexpected HID recovery MUST
+be logged.
 
 ### Nix tests
 

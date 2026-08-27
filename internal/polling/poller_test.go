@@ -3,8 +3,10 @@ package polling
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,6 +166,17 @@ func assertNoConnection(t *testing.T, observer *recordingObserver) {
 	}
 }
 
+func assertNoHIDNotification(t *testing.T, observer *recordingObserver) {
+	t.Helper()
+	select {
+	case err := <-observer.failures:
+		t.Fatalf("unexpected HID failure: %v", err)
+	case path := <-observer.recoveries:
+		t.Fatalf("unexpected HID recovery for %q", path)
+	default:
+	}
+}
+
 func TestStartupWithoutAdapterRequestsFallback(t *testing.T) {
 	h := newHarness(t, nil)
 	h.selectDevice(discovery.Candidate{})
@@ -241,6 +254,35 @@ func TestPoweredOffAdapterRequestsFallbackAtThreshold(t *testing.T) {
 	if got := receiveConnection(t, h.observer); !got.AdapterPresent || got.HeadsetConnected {
 		t.Fatalf("powered-off state = %#v", got)
 	}
+}
+
+func TestExpectedReadErrorsDisconnectWithoutFailureOrRecoveryNotifications(t *testing.T) {
+	brokenPipe := fmt.Errorf("HIDIOCGFEATURE report 0xb0: %w", syscall.EPIPE)
+	reader := newScriptedReader(
+		scriptedResult{err: brokenPipe},
+		scriptedResult{err: brokenPipe},
+		scriptedResult{err: brokenPipe},
+		scriptedResult{data: featureReport(true)},
+	)
+	h := newHarness(t, map[string]*scriptedReader{"/dev/hidraw1": reader})
+	h.selectDevice(discovery.Candidate{Syspath: "/sys/a", Devnode: "/dev/hidraw1"})
+
+	for range 2 {
+		h.tick()
+		assertNoConnection(t, h.observer)
+		assertNoHIDNotification(t, h.observer)
+	}
+	h.tick()
+	if got := receiveConnection(t, h.observer); !got.AdapterPresent || got.HeadsetConnected {
+		t.Fatalf("powered-off state = %#v", got)
+	}
+	assertNoHIDNotification(t, h.observer)
+
+	h.tick()
+	if got := receiveConnection(t, h.observer); !got.AdapterPresent || !got.HeadsetConnected {
+		t.Fatalf("reconnected state = %#v", got)
+	}
+	assertNoHIDNotification(t, h.observer)
 }
 
 func TestOpenFailuresUseDisconnectThreshold(t *testing.T) {

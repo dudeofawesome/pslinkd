@@ -61,8 +61,11 @@ stream, or otherwise consume endpoint `0x81`.
 The default poll interval is 200 ms and is configurable. Poll cancellation and
 device removal MUST allow prompt shutdown even if an ioctl is in progress.
 Expected errors such as `EPIPE` are samples for connection debouncing, not
-process-fatal errors. Repetitive read-error logs MUST be rate-limited while
-preserving error type and recovery transitions.
+process-fatal errors. Errors classified by the HID layer as expected disconnect
+samples (`EPIPE`, `ENODEV`, `EIO`, and `ETIMEDOUT`) MUST NOT emit HID failure or
+recovery records. Unexpected open, read, and decode errors MUST emit
+rate-limited failure records while preserving error type and recovery
+transitions.
 
 ## Connection state machine
 

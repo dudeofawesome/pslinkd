@@ -42,7 +42,7 @@ func TestObserverWritesRequiredEventsAndRateLimitsFailures(t *testing.T) {
 	observer.ConnectionChanged(state.Connection{AdapterPresent: true, HeadsetConnected: true})
 	observer.ConnectionChanged(state.Connection{AdapterPresent: true})
 	for range 3 {
-		observer.HIDFailure(candidate.Devnode, errors.New("EPIPE"))
+		observer.HIDFailure(candidate.Devnode, errors.New("unexpected read failure"))
 	}
 	observer.HIDRecovered(candidate.Devnode)
 	routingError := &audio.TargetError{

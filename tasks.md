@@ -88,7 +88,10 @@ change first.
 
 - [x] Implement JSON-line structured logging and the required event names and
   fields.
-- [x] Rate-limit repetitive expected HID/audio errors while logging recovery.
+- [x] Rate-limit repetitive unexpected HID and audio errors while logging
+  unexpected HID recovery.
+- [x] Treat HID errors classified as expected disconnect samples as normal
+  debouncing input without HID failure/recovery logs.
 - [x] Handle SIGINT/SIGTERM and close/cancel discovery, HID, retries, and child
   processes within the stop timeout.
 - [x] Add lifecycle and log-schema tests.

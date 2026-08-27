@@ -164,8 +164,10 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 }
 
 func (poller *Poller) failedSample(err error) {
-	poller.hadFailure = true
-	poller.observer.HIDFailure(poller.candidate.Devnode, err)
+	if !hid.IsExpectedReadError(err) {
+		poller.hadFailure = true
+		poller.observer.HIDFailure(poller.candidate.Devnode, err)
+	}
 	poller.sample(false)
 }
 

@@ -203,11 +203,13 @@ Every daemon record is one JSON object containing at least `time`, `level`,
 {"time":"2026-08-26T18:00:02Z","level":"info","event":"audio_action_succeeded","message":"audio defaults updated","attempt":1,"revision":2,"target_name":"alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo"}
 ```
 
-Expected HID and audio failures are rate-limited. Audio failures retain the
-desired transition and retry with bounded backoff without stopping device
-monitoring. Permission errors include the hidraw path and error type; verify
-the active udev rule, `pslink` membership, and recreated login session when
-diagnosing them.
+Expected HID disconnect errors, including the adapter's normal `EPIPE` response
+while the headset is powered off, do not produce failure/recovery records.
+Unexpected HID and repeated audio failures are rate-limited. Audio failures
+retain the desired transition and retry with bounded backoff without stopping
+device monitoring. Permission errors include the hidraw path and error type;
+verify the active udev rule, `pslink` membership, and recreated login session
+when diagnosing them.
 
 If an audio target cannot be resolved, compare `target_name` in the retry log
 with the exact `node.name` reported by `wpctl list`. Numeric IDs must not be put
