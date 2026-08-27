@@ -29,7 +29,7 @@ type Dependencies struct {
 	DiscoveryBackend discovery.Backend
 	OpenReader       polling.OpenReader
 	PollClock        polling.Clock
-	AudioSetter      audio.DefaultSetter
+	AudioSetter      audio.Setter
 	RetryClock       audio.RetryClock
 }
 
@@ -72,6 +72,7 @@ func Run(
 			HeadsetSource:  cfg.Audio.HeadsetSource,
 			FallbackSource: cfg.Audio.FallbackSource,
 		},
+		controlsEnabled: cfg.Controls.Enabled,
 	}
 	if setter, ok := dependencies.AudioSetter.(interface {
 		SetResolverObserver(audio.ResolverObserver)
@@ -132,13 +133,16 @@ func Run(
 }
 
 type observer struct {
-	logger        *logging.Logger
-	selections    chan discovery.Candidate
-	desiredStates chan audio.Desired
-	targets       audio.Targets
-	selected      discovery.Candidate
-	selectedMu    sync.Mutex
-	hidEpisode    atomic.Uint64
+	logger          *logging.Logger
+	selections      chan discovery.Candidate
+	desiredStates   chan audio.Desired
+	targets         audio.Targets
+	selected        discovery.Candidate
+	selectedMu      sync.Mutex
+	desiredMu       sync.Mutex
+	desired         audio.Desired
+	controlsEnabled bool
+	hidEpisode      atomic.Uint64
 }
 
 func (observer *observer) SelectionChanged(candidate discovery.Candidate) {
@@ -190,15 +194,62 @@ func (observer *observer) ConnectionChanged(connection state.Connection) {
 	observer.selectedMu.Lock()
 	selected := observer.selected
 	observer.selectedMu.Unlock()
-	sendLatest(observer.desiredStates, audio.Desired{
+	desired := audio.Desired{
 		HeadsetConnected: connection.HeadsetConnected,
+		ControlsEnabled:  observer.controlsEnabled,
 		USB: audio.USBIdentity{
 			Syspath:    selected.USBParentSyspath,
 			Serial:     selected.USBSerial,
 			HIDSyspath: selected.Syspath,
 			HIDDevnode: selected.Devnode,
 		},
-	})
+	}
+	observer.desiredMu.Lock()
+	observer.desired = desired
+	observer.desiredMu.Unlock()
+	sendLatest(observer.desiredStates, desired)
+}
+
+func (observer *observer) InteractionChanged(update state.InteractionUpdate) {
+	if update.VolumeChanged && update.Volume.Valid {
+		observer.logger.Event(logging.Info, "volume_changed", "headset volume changed", logging.Fields{
+			"volume": update.Volume.Value,
+		})
+	}
+	if update.MicrophoneChanged && update.MicrophoneMuted.Valid {
+		observer.logger.Event(logging.Info, "microphone_state_changed", "headset microphone state changed", logging.Fields{
+			"microphone_muted": update.MicrophoneMuted.Value,
+		})
+	}
+	if update.VolumeUpPressed {
+		observer.logger.Event(logging.Info, "volume_up_pressed", "headset volume-up button pressed", nil)
+	}
+	if update.VolumeDownPressed {
+		observer.logger.Event(logging.Info, "volume_down_pressed", "headset volume-down button pressed", nil)
+	}
+	if update.MicrophoneMutePressed {
+		observer.logger.Event(logging.Info, "microphone_mute_pressed", "headset microphone-mute button pressed", nil)
+	}
+	if !observer.controlsEnabled || (!update.VolumeChanged && !update.MicrophoneChanged) {
+		return
+	}
+	observer.desiredMu.Lock()
+	observer.desired.Volume = audio.OptionalVolume(update.Volume)
+	observer.desired.MicrophoneMuted = audio.OptionalBool(update.MicrophoneMuted)
+	desired := observer.desired
+	observer.desiredMu.Unlock()
+	sendLatest(observer.desiredStates, desired)
+}
+
+func (observer *observer) InvalidVolume(path string, value uint8) {
+	observer.logger.RateLimited(
+		fmt.Sprintf("invalid-volume:%d:%d", observer.hidEpisode.Load(), value),
+		failureLogInterval,
+		logging.Warn,
+		"invalid_volume",
+		"headset reported an out-of-range volume",
+		logging.Fields{"device_path": path, "volume": value},
+	)
 }
 
 func (observer *observer) AutomaticTargetSelected(

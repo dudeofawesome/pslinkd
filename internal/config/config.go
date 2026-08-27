@@ -20,9 +20,14 @@ const (
 )
 
 type Config struct {
-	Audio   Audio   `yaml:"audio"`
-	Polling Polling `yaml:"polling"`
-	Logging Logging `yaml:"logging"`
+	Audio    Audio    `yaml:"audio"`
+	Controls Controls `yaml:"controls"`
+	Polling  Polling  `yaml:"polling"`
+	Logging  Logging  `yaml:"logging"`
+}
+
+type Controls struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type Audio struct {

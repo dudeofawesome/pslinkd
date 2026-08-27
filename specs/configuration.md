@@ -41,6 +41,9 @@ polling:
   interval: 200ms
   disconnect_failures: 3
 
+controls:
+  enabled: false
+
 logging:
   level: info
 ```
@@ -55,13 +58,14 @@ logging:
 | `audio.fallback_source` | string | unset | nonempty; enables source routing and automatic headset-source discovery |
 | `polling.interval` | duration string | `200ms` | `50ms..10s` |
 | `polling.disconnect_failures` | integer | `3` | `1..50` |
+| `controls.enabled` | boolean | `false` | enables v1.1 volume/microphone convergence |
 | `logging.level` | string enum | `info` | `debug`, `info`, `warn`, or `error` |
 
 `fallback_source` controls whether default-source routing is enabled. With it
 set, an omitted `headset_source` is automatically discovered; with it unset,
-source routing is disabled and `headset_source` MUST also be unset. Button,
-volume, and microphone interaction settings are reserved for v1.1 and are
-unknown-key errors in a v1 configuration.
+source routing is disabled and `headset_source` MUST also be unset. V1.1 has no
+per-button settings, relative-volume settings, or event hooks; such keys remain
+unknown-key errors.
 
 Device IDs, report layout, routing retry policy, and log format are not
 configurable in v1.

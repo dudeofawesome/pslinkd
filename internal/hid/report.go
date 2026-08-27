@@ -31,7 +31,13 @@ var (
 )
 
 type Report struct {
-	Connected bool
+	Connected             bool
+	VolumeUpPressed       bool
+	VolumeDownPressed     bool
+	MicrophoneMutePressed bool
+	MicrophoneMuted       bool
+	Volume                *uint8
+	InvalidVolume         *uint8
 }
 
 func DecodeReport(data []byte) (Report, error) {
@@ -41,7 +47,20 @@ func DecodeReport(data []byte) (Report, error) {
 	if data[0] != ReportID {
 		return Report{}, ErrWrongReportID
 	}
-	return Report{Connected: data[39]&0x01 != 0}, nil
+	volume := uint8(data[44])
+	report := Report{
+		Connected:             data[39]&0x01 != 0,
+		VolumeUpPressed:       data[39]&0x08 != 0,
+		VolumeDownPressed:     data[39]&0x10 != 0,
+		MicrophoneMutePressed: data[39]&0x20 != 0,
+		MicrophoneMuted:       data[43]&0xf0 == 0,
+	}
+	if volume <= 15 {
+		report.Volume = &volume
+	} else {
+		report.InvalidVolume = &volume
+	}
+	return report, nil
 }
 
 func FeatureRequest(length uint32) uintptr {

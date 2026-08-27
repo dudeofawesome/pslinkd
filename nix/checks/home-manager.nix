@@ -47,6 +47,7 @@ let
         interval = "0.2s";
         disconnectFailures = 4;
       };
+      controls.enable = true;
       logLevel = "debug";
     };
   };
@@ -83,6 +84,10 @@ let
     services.pslinkd.polling.disconnectFailures = 0;
   };
 
+  invalidControls = evaluate {
+    services.pslinkd.controls.enable = "yes";
+  };
+
   forcesSuccessfully =
     configuration: (builtins.tryEval configuration.activationPackage.drvPath).success;
 
@@ -90,9 +95,7 @@ let
   execStart = unit.Service.ExecStart;
   restartTriggers = unit.Unit.X-Restart-Triggers;
   generatedConfig = builtins.elemAt restartTriggers 0;
-  automaticSourceConfig = builtins.elemAt
-    automaticSource.config.systemd.user.services.pslinkd.Unit.X-Restart-Triggers
-    0;
+  automaticSourceConfig = builtins.elemAt automaticSource.config.systemd.user.services.pslinkd.Unit.X-Restart-Triggers 0;
   renderedUnit = valid.config.xdg.configFile."systemd/user/pslinkd.service".source;
 
   inspection = {
@@ -107,6 +110,7 @@ let
     noLingering = !(valid.config ? users);
     noUdevConfiguration = !(valid.config.services ? udev);
     startServicesPreserved = !valid.config.systemd.user.startServices;
+    controlsDefaultDisabled = !defaults.config.services.pslinkd.controls.enable;
   };
 
   inspectionFile = pkgs.writeText "pslinkd-home-manager-inspection.json" (builtins.toJSON inspection);
@@ -118,6 +122,7 @@ assert !(forcesSuccessfully missingSink);
 assert !(forcesSuccessfully invalidSourcePair);
 assert !(forcesSuccessfully invalidTiming);
 assert !(forcesSuccessfully invalidFailures);
+assert !(forcesSuccessfully invalidControls);
 assert inspection.packageInstalled;
 assert inspection.packageRestartTrigger;
 assert inspection.wantsWirePlumber;
@@ -128,6 +133,7 @@ assert inspection.noSystemService;
 assert inspection.noLingering;
 assert inspection.noUdevConfiguration;
 assert inspection.startServicesPreserved;
+assert inspection.controlsDefaultDisabled;
 pkgs.runCommand "pslinkd-home-manager-check" { } ''
   grep -F 'run --config ${generatedConfig}' ${inspectionFile}
   grep -F '[Unit]' ${renderedUnit}
@@ -147,9 +153,11 @@ pkgs.runCommand "pslinkd-home-manager-check" { } ''
   grep -F 'fallback_source: alsa_input.pci-0000_00_1f.3.analog-stereo' ${generatedConfig}
   grep -F 'interval: 0.2s' ${generatedConfig}
   grep -F 'disconnect_failures: 4' ${generatedConfig}
+  grep -F 'enabled: true' ${generatedConfig}
   grep -F 'level: debug' ${generatedConfig}
   grep -F 'fallback_sink: alsa_output.pci-0000_03_00.1.hdmi-stereo' ${automaticSourceConfig}
   grep -F 'fallback_source: fallback-source' ${automaticSourceConfig}
+  grep -F 'enabled: false' ${automaticSourceConfig}
   ! grep -F 'headset_sink:' ${automaticSourceConfig}
   ! grep -F 'headset_source:' ${automaticSourceConfig}
   touch "$out"

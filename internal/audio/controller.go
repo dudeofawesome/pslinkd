@@ -11,8 +11,10 @@ const (
 	DefaultMaximumRetry = 30 * time.Second
 )
 
-type DefaultSetter interface {
+type Setter interface {
 	SetDefault(context.Context, Kind, Target) error
+	SetVolume(context.Context, Target, uint8) error
+	SetMute(context.Context, Target, bool) error
 }
 
 type USBIdentity struct {
@@ -37,6 +39,19 @@ type Targets struct {
 type Desired struct {
 	HeadsetConnected bool
 	USB              USBIdentity
+	ControlsEnabled  bool
+	Volume           OptionalVolume
+	MicrophoneMuted  OptionalBool
+}
+
+type OptionalVolume struct {
+	Valid bool
+	Value uint8
+}
+
+type OptionalBool struct {
+	Valid bool
+	Value bool
 }
 
 type ActionObserver interface {
@@ -68,7 +83,7 @@ type RetryClock interface {
 }
 
 type Controller struct {
-	setter       DefaultSetter
+	setter       Setter
 	targets      Targets
 	clock        RetryClock
 	observer     ActionObserver
@@ -77,7 +92,7 @@ type Controller struct {
 }
 
 func NewController(
-	setter DefaultSetter,
+	setter Setter,
 	targets Targets,
 	clock RetryClock,
 	observer ActionObserver,
@@ -99,10 +114,18 @@ type actionResult struct {
 	err      error
 }
 
+type actionPlan struct {
+	route  bool
+	volume bool
+	mute   bool
+}
+
 func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desired) error {
 	results := make(chan actionResult, 1)
 	var revision uint64
 	var current Desired
+	var applied *Desired
+	var plan actionPlan
 	var attempt int
 	var actionCancel context.CancelFunc
 	var retryTimer Timer
@@ -127,8 +150,9 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 		currentRevision := revision
 		currentDesired := current
 		currentAttempt := attempt
+		currentPlan := plan
 		go func() {
-			err := controller.apply(actionContext, currentDesired)
+			err := controller.apply(actionContext, currentDesired, currentPlan)
 			result := actionResult{
 				revision: currentRevision,
 				desired:  currentDesired,
@@ -153,6 +177,7 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 			stopCurrent()
 			revision++
 			current = desired
+			plan = controller.plan(desired, applied)
 			attempt = 1
 			startAction()
 		case result := <-results:
@@ -162,6 +187,8 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 			actionCancel()
 			actionCancel = nil
 			if result.err == nil {
+				value := result.desired
+				applied = &value
 				controller.observer.AudioActionSucceeded(
 					result.revision,
 					result.desired,
@@ -186,18 +213,46 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 	}
 }
 
-func (controller *Controller) apply(ctx context.Context, desired Desired) error {
+func (controller *Controller) plan(desired Desired, applied *Desired) actionPlan {
+	route := applied == nil || desired.HeadsetConnected != applied.HeadsetConnected ||
+		(desired.HeadsetConnected && desired.USB != applied.USB)
+	volume := desired.ControlsEnabled && desired.HeadsetConnected && desired.Volume.Valid &&
+		(applied == nil || !applied.ControlsEnabled || !applied.HeadsetConnected ||
+			!applied.Volume.Valid || desired.Volume.Value != applied.Volume.Value ||
+			desired.USB != applied.USB)
+	mute := controller.targets.FallbackSource != "" && desired.ControlsEnabled &&
+		desired.HeadsetConnected && desired.MicrophoneMuted.Valid &&
+		(applied == nil || !applied.ControlsEnabled || !applied.HeadsetConnected ||
+			!applied.MicrophoneMuted.Valid ||
+			desired.MicrophoneMuted.Value != applied.MicrophoneMuted.Value ||
+			desired.USB != applied.USB)
+	return actionPlan{route: route, volume: volume, mute: mute}
+}
+
+func (controller *Controller) apply(ctx context.Context, desired Desired, plan actionPlan) error {
 	sink := Target{Name: controller.targets.FallbackSink}
 	source := Target{Name: controller.targets.FallbackSource}
 	if desired.HeadsetConnected {
 		sink = Target{Name: controller.targets.HeadsetSink, USB: desired.USB}
 		source = Target{Name: controller.targets.HeadsetSource, USB: desired.USB}
 	}
-	if err := controller.setter.SetDefault(ctx, Sink, sink); err != nil {
-		return &TargetError{Kind: Sink, TargetName: sink.Name, Err: err}
+	if plan.route {
+		if err := controller.setter.SetDefault(ctx, Sink, sink); err != nil {
+			return &TargetError{Kind: Sink, TargetName: sink.Name, Err: err}
+		}
+		if source.Name != "" || (desired.HeadsetConnected && controller.targets.FallbackSource != "") {
+			if err := controller.setter.SetDefault(ctx, Source, source); err != nil {
+				return &TargetError{Kind: Source, TargetName: source.Name, Err: err}
+			}
+		}
 	}
-	if source.Name != "" || (desired.HeadsetConnected && controller.targets.FallbackSource != "") {
-		if err := controller.setter.SetDefault(ctx, Source, source); err != nil {
+	if plan.volume {
+		if err := controller.setter.SetVolume(ctx, sink, desired.Volume.Value); err != nil {
+			return &TargetError{Kind: Sink, TargetName: sink.Name, Err: err}
+		}
+	}
+	if plan.mute {
+		if err := controller.setter.SetMute(ctx, source, desired.MicrophoneMuted.Value); err != nil {
 			return &TargetError{Kind: Source, TargetName: source.Name, Err: err}
 		}
 	}

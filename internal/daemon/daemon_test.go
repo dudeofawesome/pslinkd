@@ -40,6 +40,18 @@ func TestObserverWritesRequiredEventsAndRateLimitsFailures(t *testing.T) {
 		{Syspath: "/sys/b", Devnode: "/dev/hidraw8"},
 	})
 	observer.ConnectionChanged(state.Connection{AdapterPresent: true, HeadsetConnected: true})
+	observer.InteractionChanged(state.InteractionUpdate{
+		Controls: state.Controls{
+			Volume:          state.OptionalVolume{Valid: true, Value: 8},
+			MicrophoneMuted: state.OptionalBool{Valid: true, Value: true},
+		},
+		VolumeChanged:         true,
+		MicrophoneChanged:     true,
+		VolumeUpPressed:       true,
+		VolumeDownPressed:     true,
+		MicrophoneMutePressed: true,
+	})
+	observer.InvalidVolume(candidate.Devnode, 16)
 	observer.ConnectionChanged(state.Connection{AdapterPresent: true})
 	for range 3 {
 		observer.HIDFailure(candidate.Devnode, errors.New("unexpected read failure"))
@@ -63,6 +75,12 @@ func TestObserverWritesRequiredEventsAndRateLimitsFailures(t *testing.T) {
 		"multiple_adapters",
 		"headset_connected",
 		"headset_disconnected",
+		"volume_changed",
+		"microphone_state_changed",
+		"volume_up_pressed",
+		"volume_down_pressed",
+		"microphone_mute_pressed",
+		"invalid_volume",
 		"hid_failure",
 		"hid_recovered",
 		"audio_action_retrying",
@@ -85,6 +103,37 @@ func TestObserverWritesRequiredEventsAndRateLimitsFailures(t *testing.T) {
 				t.Errorf("event lacks %q: %#v", key, record)
 			}
 		}
+	}
+}
+
+func TestObserverCarriesCompleteEnabledControlStateIntoDesiredRevision(t *testing.T) {
+	observer := &observer{
+		logger:          logging.New(&bytes.Buffer{}, "debug", nil),
+		selections:      make(chan discovery.Candidate, 1),
+		desiredStates:   make(chan audio.Desired, 1),
+		controlsEnabled: true,
+	}
+	observer.SelectionChanged(discovery.Candidate{
+		Syspath: "/sys/hid/a", Devnode: "/dev/hidraw3", USBParentSyspath: "/sys/usb/a",
+	})
+	observer.ConnectionChanged(state.Connection{AdapterPresent: true, HeadsetConnected: true})
+	observer.InteractionChanged(state.InteractionUpdate{
+		Controls: state.Controls{
+			Volume:          state.OptionalVolume{Valid: true, Value: 11},
+			MicrophoneMuted: state.OptionalBool{Valid: true, Value: true},
+		},
+		VolumeChanged: true, MicrophoneChanged: true,
+	})
+	desired := <-observer.desiredStates
+	if !desired.HeadsetConnected || !desired.ControlsEnabled ||
+		desired.Volume != (audio.OptionalVolume{Valid: true, Value: 11}) ||
+		desired.MicrophoneMuted != (audio.OptionalBool{Valid: true, Value: true}) {
+		t.Fatalf("desired controls = %#v", desired)
+	}
+	observer.ConnectionChanged(state.Connection{})
+	disconnected := <-observer.desiredStates
+	if disconnected.Volume.Valid || disconnected.MicrophoneMuted.Valid {
+		t.Fatalf("disconnect retained stale controls: %#v", disconnected)
 	}
 }
 
@@ -188,6 +237,14 @@ func (setter *blockingSetter) SetDefault(ctx context.Context, _ audio.Kind, _ au
 	return ctx.Err()
 }
 
+func (setter *blockingSetter) SetVolume(context.Context, audio.Target, uint8) error {
+	return errors.New("unexpected volume action")
+}
+
+func (setter *blockingSetter) SetMute(context.Context, audio.Target, bool) error {
+	return errors.New("unexpected mute action")
+}
+
 type unusedRetryClock struct{}
 
 func (unusedRetryClock) NewTimer(time.Duration) audio.Timer {
@@ -267,6 +324,8 @@ func TestDiscoveryFailureIsLoggedAndReturned(t *testing.T) {
 type immediateSetter struct{}
 
 func (*immediateSetter) SetDefault(context.Context, audio.Kind, audio.Target) error { return nil }
+func (*immediateSetter) SetVolume(context.Context, audio.Target, uint8) error       { return nil }
+func (*immediateSetter) SetMute(context.Context, audio.Target, bool) error          { return nil }
 
 func testConfig() config.Config {
 	cfg := config.Defaults()

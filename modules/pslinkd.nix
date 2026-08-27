@@ -76,6 +76,8 @@ let
       disconnect_failures = cfg.polling.disconnectFailures;
     };
 
+    controls.enabled = cfg.controls.enable;
+
     logging.level = cfg.logLevel;
   };
 in
@@ -131,6 +133,12 @@ in
         default = 3;
         description = "Consecutive unsuccessful samples required to disconnect.";
       };
+    };
+
+    controls.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Synchronize absolute headset volume and microphone mute state through wpctl.";
     };
 
     logLevel = mkOption {

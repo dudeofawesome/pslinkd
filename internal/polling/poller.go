@@ -28,16 +28,19 @@ type Clock interface {
 
 type Observer interface {
 	ConnectionChanged(state.Connection)
+	InteractionChanged(state.InteractionUpdate)
+	InvalidVolume(string, uint8)
 	HIDFailure(string, error)
 	HIDRecovered(string)
 }
 
 type Poller struct {
-	interval  time.Duration
-	clock     Clock
-	open      OpenReader
-	observer  Observer
-	debouncer *state.Debouncer
+	interval     time.Duration
+	clock        Clock
+	open         OpenReader
+	observer     Observer
+	debouncer    *state.Debouncer
+	interactions state.InteractionTracker
 
 	candidate    discovery.Candidate
 	hasSelection bool
@@ -135,7 +138,16 @@ func (poller *Poller) waitForRead(
 			return false
 		}
 		poller.recovered()
-		poller.sample(report.Connected)
+		connection, _ := poller.sample(report.Connected)
+		if !connection.HeadsetConnected {
+			return false
+		}
+		if report.InvalidVolume != nil {
+			poller.observer.InvalidVolume(poller.candidate.Devnode, *report.InvalidVolume)
+		}
+		if update := poller.interactions.Sample(report); update.Changed() {
+			poller.observer.InteractionChanged(update)
+		}
 		return false
 	}
 }
@@ -146,6 +158,7 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 	}
 	if poller.hasSelection && poller.candidate.Devnode != "" {
 		poller.closeReader()
+		poller.interactions.Reset()
 		if connection, changed := poller.debouncer.AdapterAbsent(); changed {
 			poller.observer.ConnectionChanged(connection)
 		}
@@ -155,6 +168,7 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 	poller.candidate = candidate
 	poller.hadFailure = false
 	if candidate.Devnode == "" {
+		poller.interactions.Reset()
 		if connection, changed := poller.debouncer.AdapterAbsent(); changed {
 			poller.observer.ConnectionChanged(connection)
 		}
@@ -179,10 +193,16 @@ func (poller *Poller) recovered() {
 	poller.observer.HIDRecovered(poller.candidate.Devnode)
 }
 
-func (poller *Poller) sample(connected bool) {
+func (poller *Poller) sample(connected bool) (state.Connection, bool) {
 	if connection, changed := poller.debouncer.Sample(connected); changed {
+		if !connection.HeadsetConnected {
+			poller.interactions.Reset()
+		}
 		poller.observer.ConnectionChanged(connection)
+		return connection, true
 	}
+	connection, _ := poller.debouncer.State()
+	return connection, false
 }
 
 func (poller *Poller) closeReader() {

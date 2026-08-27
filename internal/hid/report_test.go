@@ -37,18 +37,45 @@ func TestFixedDeviceProfile(t *testing.T) {
 	}
 }
 
-func TestDecodeReportIgnoresDeferredFields(t *testing.T) {
+func TestDecodeReportV11Fields(t *testing.T) {
 	fixture := make([]byte, ReportLength)
 	fixture[0] = ReportID
-	fixture[39] = 0x38
-	fixture[43] = 0xf0
+	fixture[39] = 0x39
+	fixture[43] = 0xa0
 	fixture[44] = 15
 	report, err := DecodeReport(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report != (Report{}) {
-		t.Fatalf("deferred fields changed v1 state: %#v", report)
+	if !report.Connected || !report.VolumeUpPressed || !report.VolumeDownPressed ||
+		!report.MicrophoneMutePressed || report.MicrophoneMuted {
+		t.Fatalf("decoded report = %#v", report)
+	}
+	if report.Volume == nil || *report.Volume != 15 || report.InvalidVolume != nil {
+		t.Fatalf("decoded volume = %#v", report)
+	}
+
+	fixture[43] = 0x0f
+	fixture[44] = 16
+	report, err = DecodeReport(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.MicrophoneMuted || report.Volume != nil ||
+		report.InvalidVolume == nil || *report.InvalidVolume != 16 {
+		t.Fatalf("invalid-volume report = %#v", report)
+	}
+}
+
+func TestDecodeReportAcceptsEveryValidVolume(t *testing.T) {
+	for value := uint8(0); value <= 15; value++ {
+		fixture := make([]byte, ReportLength)
+		fixture[0] = ReportID
+		fixture[44] = value
+		report, err := DecodeReport(fixture)
+		if err != nil || report.Volume == nil || *report.Volume != value {
+			t.Fatalf("volume %d decoded as %#v, error %v", value, report, err)
+		}
 	}
 }
 

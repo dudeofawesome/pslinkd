@@ -10,8 +10,11 @@ import (
 )
 
 type setCall struct {
+	op     string
 	kind   Kind
 	target Target
+	volume uint8
+	muted  bool
 }
 
 type fakeSetter struct {
@@ -20,8 +23,20 @@ type fakeSetter struct {
 }
 
 func (setter *fakeSetter) SetDefault(ctx context.Context, kind Kind, target Target) error {
+	return setter.call(ctx, setCall{kind: kind, target: target})
+}
+
+func (setter *fakeSetter) SetVolume(ctx context.Context, target Target, volume uint8) error {
+	return setter.call(ctx, setCall{op: "volume", kind: Sink, target: target, volume: volume})
+}
+
+func (setter *fakeSetter) SetMute(ctx context.Context, target Target, muted bool) error {
+	return setter.call(ctx, setCall{op: "mute", kind: Source, target: target, muted: muted})
+}
+
+func (setter *fakeSetter) call(ctx context.Context, call setCall) error {
 	select {
-	case setter.calls <- setCall{kind: kind, target: target}:
+	case setter.calls <- call:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -357,6 +372,135 @@ func TestControllerDoesNotRepeatSuccessfulActionWithoutTransition(t *testing.T) 
 		t.Fatalf("successful action scheduled an audit: %#v", timer)
 	default:
 	}
+}
+
+func TestControllerConvergesInitialAndChangedControlsWithoutReassertingRoute(t *testing.T) {
+	h := newControllerHarness(t, Targets{
+		HeadsetSink:    "headset",
+		FallbackSink:   "speakers",
+		HeadsetSource:  "headset-mic",
+		FallbackSource: "desk-mic",
+	})
+	desired := Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		Volume:           OptionalVolume{Valid: true, Value: 6},
+		MicrophoneMuted:  OptionalBool{Valid: true, Value: true},
+	}
+	h.desired <- desired
+	for _, want := range []setCall{
+		{kind: Sink, target: Target{Name: "headset"}},
+		{kind: Source, target: Target{Name: "headset-mic"}},
+		{op: "volume", kind: Sink, target: Target{Name: "headset"}, volume: 6},
+		{op: "mute", kind: Source, target: Target{Name: "headset-mic"}, muted: true},
+	} {
+		if got := receiveSetCall(t, h.setter); got != want {
+			t.Fatalf("initial control call = %#v, want %#v", got, want)
+		}
+		h.setter.results <- nil
+	}
+	receiveSucceeded(t, h.observer)
+
+	desired.Volume.Value = 7
+	h.desired <- desired
+	if got := receiveSetCall(t, h.setter); got != (setCall{
+		op: "volume", kind: Sink, target: Target{Name: "headset"}, volume: 7,
+	}) {
+		t.Fatalf("changed volume call = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+	select {
+	case call := <-h.setter.calls:
+		t.Fatalf("control change reasserted another action: %#v", call)
+	default:
+	}
+}
+
+func TestControllerSkipsControlsWhenDisabledOrDisconnected(t *testing.T) {
+	h := newControllerHarness(t, Targets{
+		HeadsetSink:    "headset",
+		FallbackSink:   "speakers",
+		HeadsetSource:  "headset-mic",
+		FallbackSource: "desk-mic",
+	})
+	h.desired <- Desired{
+		HeadsetConnected: true,
+		Volume:           OptionalVolume{Valid: true, Value: 15},
+		MicrophoneMuted:  OptionalBool{Valid: true, Value: true},
+	}
+	for range 2 {
+		call := receiveSetCall(t, h.setter)
+		if call.op != "" {
+			t.Fatalf("disabled control call = %#v", call)
+		}
+		h.setter.results <- nil
+	}
+	receiveSucceeded(t, h.observer)
+
+	h.desired <- Desired{
+		ControlsEnabled: true,
+		Volume:          OptionalVolume{Valid: true, Value: 9},
+		MicrophoneMuted: OptionalBool{Valid: true, Value: true},
+	}
+	for range 2 {
+		call := receiveSetCall(t, h.setter)
+		if call.op != "" {
+			t.Fatalf("disconnected stale control call = %#v", call)
+		}
+		h.setter.results <- nil
+	}
+	receiveSucceeded(t, h.observer)
+}
+
+func TestControllerSkipsMuteWithoutSourceRouting(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	h.desired <- Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		MicrophoneMuted:  OptionalBool{Valid: true, Value: true},
+	}
+	if got := receiveSetCall(t, h.setter); got.op != "" || got.kind != Sink {
+		t.Fatalf("route call = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+	select {
+	case call := <-h.setter.calls:
+		t.Fatalf("mute action without source routing = %#v", call)
+	default:
+	}
+}
+
+func TestControllerRetriesControlAndCancelsItOnDisconnect(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	connected := Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		Volume:           OptionalVolume{Valid: true, Value: 4},
+	}
+	h.desired <- connected
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got.op != "volume" {
+		t.Fatalf("volume call = %#v", got)
+	}
+	h.setter.results <- errors.New("volume failed")
+	receiveRetry(t, h.observer)
+	timer := <-h.clock.timers
+	timer.timer.ticks <- time.Time{}
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got.op != "volume" {
+		t.Fatalf("retried volume call = %#v", got)
+	}
+
+	h.desired <- Desired{ControlsEnabled: true}
+	if got := receiveSetCall(t, h.setter); got.op != "" || got.target.Name != "speakers" {
+		t.Fatalf("disconnect replacement call = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
 }
 
 func TestRetryDelayIsBounded(t *testing.T) {

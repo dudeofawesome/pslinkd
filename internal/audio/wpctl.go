@@ -79,20 +79,61 @@ func (adapter *WPCTL) SetResolverObserver(observer ResolverObserver) {
 }
 
 func (adapter *WPCTL) SetDefault(ctx context.Context, kind Kind, target Target) error {
-	plural, err := kind.plural()
+	id, err := adapter.resolveTarget(ctx, kind, target)
 	if err != nil {
 		return err
+	}
+	if _, err := adapter.run(ctx, "set-default", id); err != nil {
+		return fmt.Errorf("set default %s target %q: %w", kind, target.Name, err)
+	}
+	return nil
+}
+
+func (adapter *WPCTL) SetVolume(ctx context.Context, target Target, volume uint8) error {
+	if volume > 15 {
+		return fmt.Errorf("volume %d is outside 0..15", volume)
+	}
+	id, err := adapter.resolveTarget(ctx, Sink, target)
+	if err != nil {
+		return err
+	}
+	ratio := strconv.FormatFloat(float64(volume)/15, 'f', -1, 64)
+	if _, err := adapter.run(ctx, "set-volume", id, ratio); err != nil {
+		return fmt.Errorf("set sink target %q volume to %s: %w", target.Name, ratio, err)
+	}
+	return nil
+}
+
+func (adapter *WPCTL) SetMute(ctx context.Context, target Target, muted bool) error {
+	id, err := adapter.resolveTarget(ctx, Source, target)
+	if err != nil {
+		return err
+	}
+	value := "0"
+	if muted {
+		value = "1"
+	}
+	if _, err := adapter.run(ctx, "set-mute", id, value); err != nil {
+		return fmt.Errorf("set source target %q mute to %s: %w", target.Name, value, err)
+	}
+	return nil
+}
+
+func (adapter *WPCTL) resolveTarget(ctx context.Context, kind Kind, target Target) (string, error) {
+	plural, err := kind.plural()
+	if err != nil {
+		return "", err
 	}
 
 	var id string
 	if target.Name != "" {
 		result, err := adapter.run(ctx, "list", "audio", plural)
 		if err != nil {
-			return fmt.Errorf("list %ss for target %q: %w", kind, target.Name, err)
+			return "", fmt.Errorf("list %ss for target %q: %w", kind, target.Name, err)
 		}
 		id, err = resolveExactName(result.Stdout, target.Name)
 		if err != nil {
-			return fmt.Errorf("resolve %s target %q: %w", kind, target.Name, err)
+			return "", fmt.Errorf("resolve %s target %q: %w", kind, target.Name, err)
 		}
 	} else {
 		var selectedName string
@@ -100,7 +141,7 @@ func (adapter *WPCTL) SetDefault(ctx context.Context, kind Kind, target Target) 
 		var candidates []ResolvedCandidate
 		id, selectedName, deviceID, candidates, err = adapter.resolveAutomatic(ctx, kind, target.USB)
 		if err != nil {
-			return fmt.Errorf("resolve automatic %s target: %w", kind, err)
+			return "", fmt.Errorf("resolve automatic %s target: %w", kind, err)
 		}
 		if adapter.observer != nil {
 			adapter.observer.AutomaticTargetSelected(
@@ -109,10 +150,7 @@ func (adapter *WPCTL) SetDefault(ctx context.Context, kind Kind, target Target) 
 		}
 	}
 
-	if _, err := adapter.run(ctx, "set-default", id); err != nil {
-		return fmt.Errorf("set default %s target %q: %w", kind, target.Name, err)
-	}
-	return nil
+	return id, nil
 }
 
 func (adapter *WPCTL) resolveAutomatic(

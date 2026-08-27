@@ -136,15 +136,26 @@ change first.
 
 ## 11. V1.1 button interactions
 
-- [ ] Decode volume-up, volume-down, and microphone-mute rising edges with
-  correct baselining and normalized JSON events.
-- [ ] Decode absolute volume and microphone state, including invalid-value
-  handling and firmware-1.38 polarity fixtures.
-- [ ] Add strict `controls.enabled` YAML and typed
-  `services.pslinkd.controls.enable` Home Manager options, both defaulting off.
-- [ ] Implement absolute PipeWire volume and microphone mute convergence using
-  the v1 automatic/override resolver and retry machinery.
-- [ ] Add every automated acceptance test in `specs/v1.1.md`.
+- [x] Extend the HID report model with the three raw button bits, byte-43
+  microphone polarity, and optional byte-44 volume; reject volume values above
+  15 without rejecting the rest of the report.
+- [x] Add a normalized interaction tracker that emits initial/changed
+  volume/microphone state, detects independent rising button edges, and resets
+  its baseline on debounced disconnect or adapter replacement.
+- [x] Log normalized `volume_changed`, `microphone_state_changed`,
+  `volume_up_pressed`, `volume_down_pressed`, and `microphone_mute_pressed`
+  events, plus invalid volume reports.
+- [x] Add strict `controls.enabled` YAML and typed
+  `services.pslinkd.controls.enable` Home Manager options, both defaulting off
+  and present in generated YAML.
+- [x] Extend the wpctl adapter with freshly resolved `set-volume` and `set-mute`
+  actions, including the linear `volume / 15` mapping for all 16 levels.
+- [x] Fold routing and complete connected control state into one revisioned
+  convergence loop so retries recover, newer reports cancel obsolete work,
+  successful routes are not reasserted for control-only changes, and no stale
+  controls apply after disconnect.
+- [x] Add decoder/tracker, polling/logging, config, controller/wpctl, lifecycle,
+  and Nix/Home Manager tests for every automated criterion in `specs/v1.1.md`.
 - [ ] Run and record every Olympus v1.1 release gate before releasing v1.1.
 
 ## 12. V1.2 battery reporting

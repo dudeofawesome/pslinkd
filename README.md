@@ -2,7 +2,9 @@
 
 pslinkd is a per-user Linux daemon that switches the WirePlumber default audio
 route when a Sony PULSE Elite headset connects to or disconnects from its
-PlayStation Link adapter.
+PlayStation Link adapter. Also reports headset button, volume, and
+microphone-state changes and can optionally converge absolute volume and mute
+state through WirePlumber.
 
 The USB audio device remains present while the headset is powered off, so
 pslinkd reads the adapter's HID radio-link state instead of treating USB audio
@@ -49,8 +51,9 @@ wpctl list audio sinks
 wpctl list audio sources
 ```
 
-Choose one headset and one fallback sink. Source routing is optional, but its
-headset and fallback values must be configured together.
+Configure a fallback sink. Headset targets are automatically associated with
+the selected physical adapter unless exact-name overrides are supplied. A
+fallback source enables source routing and automatic headset-source discovery.
 
 ## Home Manager
 
@@ -98,6 +101,10 @@ assumes the flake inputs are passed to Home Manager with
       interval = "200ms";
       disconnectFailures = 3;
     };
+
+    # Button/state events are always logged. This additionally converges the
+    # headset's absolute volume and microphone mute state through wpctl.
+    controls.enable = false;
 
     logLevel = "info";
   };
@@ -164,6 +171,9 @@ polling:
     interval: 200ms
     disconnect_failures: 3
 
+controls:
+    enabled: false
+
 logging:
     level: info
 ```
@@ -200,6 +210,8 @@ Every daemon record is one JSON object containing at least `time`, `level`,
 {"time":"2026-08-26T18:00:00Z","level":"info","event":"daemon_start","message":"pslinkd started"}
 {"time":"2026-08-26T18:00:01Z","level":"info","event":"adapter_added","message":"PlayStation Link adapter added","device_path":"/dev/hidraw4","adapter_present":true}
 {"time":"2026-08-26T18:00:02Z","level":"info","event":"headset_connected","message":"headset radio link connected","adapter_present":true,"headset_connected":true}
+{"time":"2026-08-26T18:00:02Z","level":"info","event":"volume_changed","message":"headset volume changed","volume":8}
+{"time":"2026-08-26T18:00:03Z","level":"info","event":"microphone_mute_pressed","message":"headset microphone-mute button pressed"}
 {"time":"2026-08-26T18:00:02Z","level":"info","event":"audio_action_succeeded","message":"audio defaults updated","attempt":1,"revision":2,"target_name":"alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo"}
 ```
 
@@ -215,7 +227,7 @@ If an audio target cannot be resolved, compare `target_name` in the retry log
 with the exact `node.name` reported by `wpctl list`. Numeric IDs must not be put
 in configuration.
 
-## V1 behavior and non-goals
+## Behavior and non-goals
 
 At the defaults, one connected report selects the headset route immediately.
 Three consecutive unsuccessful 200 ms samples select the fallback route.
@@ -226,12 +238,12 @@ After pslinkd successfully handles a transition, a later default selected in
 GNOME or another client is left alone until the next headset transition or
 daemon start.
 
-V1 does not:
+V1.1 does not:
 
 - read or detach the adapter's USB interrupt endpoint;
 - force-move pinned streams;
 - periodically enforce a default route;
-- handle volume, microphone, or headset-button state;
+- execute relative audio actions directly from button presses;
 - run arbitrary hooks or expose an IPC API;
 - manage several adapters concurrently;
 - configure PipeWire, WirePlumber, users, groups, udev, or lingering; or

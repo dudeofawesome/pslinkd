@@ -26,6 +26,9 @@ func TestDecodeMinimalAppliesDefaults(t *testing.T) {
 	if cfg.Logging.Level != "info" {
 		t.Errorf("log level = %q", cfg.Logging.Level)
 	}
+	if cfg.Controls.Enabled {
+		t.Error("controls enabled by default")
+	}
 }
 
 func TestDecodeFullConfigWithCommentsAndSources(t *testing.T) {
@@ -39,6 +42,8 @@ audio:
 polling:
   interval: 50ms
   disconnect_failures: 50
+controls:
+  enabled: true
 logging:
   level: debug
 `))
@@ -47,6 +52,9 @@ logging:
 	}
 	if cfg.Audio.HeadsetSink != "on" || cfg.Audio.FallbackSource != "fallback-input" {
 		t.Fatalf("unexpected audio config: %#v", cfg.Audio)
+	}
+	if !cfg.Controls.Enabled {
+		t.Fatal("controls were not enabled")
 	}
 }
 
@@ -85,6 +93,7 @@ func TestDecodeRejectsInvalidConfigurations(t *testing.T) {
 		"few failures":          minimal + "polling:\n  disconnect_failures: 0\n",
 		"many failures":         minimal + "polling:\n  disconnect_failures: 51\n",
 		"invalid level":         minimal + "logging:\n  level: verbose\n",
+		"controls type":         minimal + "controls:\n  enabled: 'true'\n",
 		"implicit node name":    "audio:\n  headset_sink: on\n  fallback_sink: false\n",
 		"multiple documents":    minimal + "---\naudio: {}\n",
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -435,5 +436,73 @@ func TestResolveExactNameRejectsMalformedFixture(t *testing.T) {
 	_, err := resolveExactName([]byte("not-machine-readable\n"), "speaker")
 	if err == nil || !strings.Contains(err.Error(), "malformed") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestWPCTLMapsEveryHeadsetVolumeLevel(t *testing.T) {
+	responses := make([]commandResponse, 0, 32)
+	for range 16 {
+		responses = append(responses,
+			commandResponse{result: CommandResult{Stdout: []byte("47\theadset\tAudio/Sink\n")}},
+			commandResponse{},
+		)
+	}
+	runner := &fakeCommandRunner{responses: responses}
+	adapter := NewWPCTL(runner, time.Second)
+	for level := uint8(0); level <= 15; level++ {
+		if err := adapter.SetVolume(context.Background(), Target{Name: "headset"}, level); err != nil {
+			t.Fatalf("level %d: %v", level, err)
+		}
+		args := runner.calls[int(level)*2+1].args
+		if len(args) != 3 || args[0] != "set-volume" || args[1] != "47" {
+			t.Fatalf("level %d args = %#v", level, args)
+		}
+		ratio, err := strconv.ParseFloat(args[2], 64)
+		if err != nil || ratio != float64(level)/15 {
+			t.Fatalf("level %d ratio = %q (%v)", level, args[2], err)
+		}
+	}
+	if err := adapter.SetVolume(context.Background(), Target{Name: "headset"}, 16); err == nil {
+		t.Fatal("out-of-range volume was accepted")
+	}
+}
+
+func TestWPCTLSetMuteUsesCurrentSourceIDAndBooleanState(t *testing.T) {
+	runner := &fakeCommandRunner{responses: []commandResponse{
+		{result: CommandResult{Stdout: []byte("62\theadset-mic\tAudio/Source\n")}},
+		{},
+		{result: CommandResult{Stdout: []byte("91\theadset-mic\tAudio/Source\n")}},
+		{},
+	}}
+	adapter := NewWPCTL(runner, time.Second)
+	if err := adapter.SetMute(context.Background(), Target{Name: "headset-mic"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.SetMute(context.Background(), Target{Name: "headset-mic"}, false); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"set-mute", "62", "1"}, {"set-mute", "91", "0"}}
+	got := [][]string{runner.calls[1].args, runner.calls[3].args}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mute calls = %#v, want %#v", got, want)
+	}
+}
+
+func TestWPCTLControlsUseAutomaticResolver(t *testing.T) {
+	responses := append(
+		automaticResponses("20", "31", "headset")[:4],
+		commandResponse{},
+	)
+	runner := &fakeCommandRunner{responses: responses}
+	err := NewWPCTL(runner, time.Second).SetVolume(
+		context.Background(),
+		Target{USB: USBIdentity{Syspath: "/sys/usb/selected"}},
+		8,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runner.calls[len(runner.calls)-1].args; got[0] != "set-volume" || got[1] != "31" {
+		t.Fatalf("automatic volume call = %#v", got)
 	}
 }

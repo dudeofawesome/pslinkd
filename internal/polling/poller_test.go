@@ -60,13 +60,23 @@ func (reader *scriptedReader) Close() error {
 }
 
 type recordingObserver struct {
-	connections chan state.Connection
-	failures    chan error
-	recoveries  chan string
+	connections    chan state.Connection
+	interactions   chan state.InteractionUpdate
+	invalidVolumes chan uint8
+	failures       chan error
+	recoveries     chan string
 }
 
 func (observer *recordingObserver) ConnectionChanged(connection state.Connection) {
 	observer.connections <- connection
+}
+
+func (observer *recordingObserver) InteractionChanged(update state.InteractionUpdate) {
+	observer.interactions <- update
+}
+
+func (observer *recordingObserver) InvalidVolume(_ string, value uint8) {
+	observer.invalidVolumes <- value
 }
 
 func (observer *recordingObserver) HIDFailure(_ string, err error) {
@@ -90,9 +100,11 @@ func newHarness(t *testing.T, readers map[string]*scriptedReader) *harness {
 	t.Helper()
 	clock := &fakeClock{ticker: &fakeTicker{ticks: make(chan time.Time)}}
 	observer := &recordingObserver{
-		connections: make(chan state.Connection, 20),
-		failures:    make(chan error, 20),
-		recoveries:  make(chan string, 20),
+		connections:    make(chan state.Connection, 20),
+		interactions:   make(chan state.InteractionUpdate, 20),
+		invalidVolumes: make(chan uint8, 20),
+		failures:       make(chan error, 20),
+		recoveries:     make(chan string, 20),
 	}
 	h := &harness{
 		clock:      clock,
@@ -174,6 +186,17 @@ func assertNoHIDNotification(t *testing.T, observer *recordingObserver) {
 	case path := <-observer.recoveries:
 		t.Fatalf("unexpected HID recovery for %q", path)
 	default:
+	}
+}
+
+func receiveInteraction(t *testing.T, observer *recordingObserver) state.InteractionUpdate {
+	t.Helper()
+	select {
+	case update := <-observer.interactions:
+		return update
+	case <-time.After(time.Second):
+		t.Fatal("no interaction update")
+		return state.InteractionUpdate{}
 	}
 }
 
@@ -285,6 +308,69 @@ func TestExpectedReadErrorsDisconnectWithoutFailureOrRecoveryNotifications(t *te
 	assertNoHIDNotification(t, h.observer)
 }
 
+func TestPollerNormalizesButtonsAndResetsBaselineOnReplacement(t *testing.T) {
+	baseline := featureReport(true)
+	baseline[39] |= 0x08
+	baseline[43] = 0xf0
+	baseline[44] = 3
+	released := featureReport(true)
+	released[43] = 0xf0
+	released[44] = 3
+	pressed := append([]byte(nil), released...)
+	pressed[39] |= 0x38
+
+	first := newScriptedReader(
+		scriptedResult{data: baseline},
+		scriptedResult{data: released},
+		scriptedResult{data: pressed},
+	)
+	second := newScriptedReader(scriptedResult{data: pressed})
+	h := newHarness(t, map[string]*scriptedReader{
+		"/dev/hidraw1": first,
+		"/dev/hidraw2": second,
+	})
+	h.selectDevice(discovery.Candidate{Syspath: "/sys/a", Devnode: "/dev/hidraw1"})
+	h.tick()
+	receiveConnection(t, h.observer)
+	initial := receiveInteraction(t, h.observer)
+	if initial.VolumeUpPressed || !initial.VolumeChanged || initial.Volume.Value != 3 ||
+		!initial.MicrophoneChanged || initial.MicrophoneMuted.Value {
+		t.Fatalf("initial interaction = %#v", initial)
+	}
+	h.tick()
+	h.tick()
+	edges := receiveInteraction(t, h.observer)
+	if !edges.VolumeUpPressed || !edges.VolumeDownPressed || !edges.MicrophoneMutePressed {
+		t.Fatalf("button edges = %#v", edges)
+	}
+
+	h.selectDevice(discovery.Candidate{Syspath: "/sys/b", Devnode: "/dev/hidraw2"})
+	receiveConnection(t, h.observer)
+	h.tick()
+	receiveConnection(t, h.observer)
+	replacement := receiveInteraction(t, h.observer)
+	if replacement.VolumeUpPressed || replacement.VolumeDownPressed ||
+		replacement.MicrophoneMutePressed {
+		t.Fatalf("replacement baseline synthesized presses: %#v", replacement)
+	}
+}
+
+func TestPollerReportsAndOmitsInvalidVolume(t *testing.T) {
+	report := featureReport(true)
+	report[44] = 16
+	reader := newScriptedReader(scriptedResult{data: report})
+	h := newHarness(t, map[string]*scriptedReader{"/dev/hidraw1": reader})
+	h.selectDevice(discovery.Candidate{Syspath: "/sys/a", Devnode: "/dev/hidraw1"})
+	h.tick()
+	receiveConnection(t, h.observer)
+	if got := <-h.observer.invalidVolumes; got != 16 {
+		t.Fatalf("invalid volume = %d", got)
+	}
+	if update := receiveInteraction(t, h.observer); update.Volume.Valid {
+		t.Fatalf("invalid volume entered normalized state: %#v", update)
+	}
+}
+
 func TestOpenFailuresUseDisconnectThreshold(t *testing.T) {
 	h := newHarness(t, nil)
 	h.selectDevice(discovery.Candidate{Syspath: "/sys/a", Devnode: "/dev/hidraw1"})
@@ -349,9 +435,11 @@ func TestCancellationClosesInFlightReaderPromptly(t *testing.T) {
 	reader := &blockingReader{started: make(chan struct{}), closed: make(chan struct{})}
 	clock := &fakeClock{ticker: &fakeTicker{ticks: make(chan time.Time)}}
 	observer := &recordingObserver{
-		connections: make(chan state.Connection, 1),
-		failures:    make(chan error, 1),
-		recoveries:  make(chan string, 1),
+		connections:    make(chan state.Connection, 1),
+		interactions:   make(chan state.InteractionUpdate, 1),
+		invalidVolumes: make(chan uint8, 1),
+		failures:       make(chan error, 1),
+		recoveries:     make(chan string, 1),
 	}
 	selections := make(chan discovery.Candidate)
 	ctx, cancel := context.WithCancel(context.Background())
