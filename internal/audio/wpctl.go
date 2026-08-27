@@ -179,7 +179,8 @@ func (adapter *WPCTL) resolveAutomatic(
 		if !belongsToUSB(path, usb.Syspath) {
 			continue
 		}
-		if serial := properties["device.serial"]; serial != "" && usb.Serial != "" && serial != usb.Serial {
+		if serial := properties["device.serial"]; serial != "" && usb.Serial != "" &&
+			!serialsMatch(serial, usb.Serial) {
 			return "", "", "", nil, fmt.Errorf(
 				"audio device %s serial %q does not match selected USB serial %q",
 				deviceID, serial, usb.Serial,
@@ -326,6 +327,10 @@ func normalizeSysfsPath(path string) string {
 		return strings.TrimPrefix(path, "/sys")
 	}
 	return path
+}
+
+func serialsMatch(audioSerial, usbSerial string) bool {
+	return audioSerial == usbSerial || strings.HasSuffix(audioSerial, "_"+usbSerial)
 }
 
 func (adapter *WPCTL) run(ctx context.Context, args ...string) (CommandResult, error) {

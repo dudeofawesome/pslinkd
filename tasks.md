@@ -81,6 +81,8 @@ change first.
 - [x] Normalize libudev `/sys/devices/...` and PipeWire `/devices/...` sysfs
   paths before physical-adapter ownership checks, with realistic regression
   tests that preserve path-component boundaries.
+- [x] Normalize PipeWire's udev-decorated `device.serial` before comparing it
+  with the selected USB device's raw serial attribute.
 - [ ] Run the automatic-discovery Olympus release gates and record the matched
   HID, audio-device, sink, and source identities.
 

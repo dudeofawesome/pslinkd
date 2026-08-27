@@ -113,7 +113,7 @@ func TestWPCTLRefreshesEphemeralIDForEveryAction(t *testing.T) {
 func TestWPCTLAutomaticallyAssociatesUSBAndSelectsHighestPriorityNode(t *testing.T) {
 	usb := USBIdentity{
 		Syspath: "/sys/devices/pci0000:00/0000:69:00.0/usb3/3-4",
-		Serial:  "selected-serial",
+		Serial:  "901c131a-6085-0492-06ec-d05027810150",
 	}
 	runner := &fakeCommandRunner{responses: []commandResponse{
 		{result: CommandResult{Stdout: []byte(
@@ -125,7 +125,8 @@ func TestWPCTLAutomaticallyAssociatesUSBAndSelectsHighestPriorityNode(t *testing
 		)}},
 		{result: CommandResult{Stdout: []byte(
 			"device.sysfs.path = \"/devices/pci0000:00/0000:69:00.0/usb3/3-4/3-4:1.0/sound/card2\"\n" +
-				"device.serial = \"selected-serial\"\n",
+				"device.serial = \"Sony_Interactive_Entertainment_PlayStation_Link_Adapter_" +
+				"901c131a-6085-0492-06ec-d05027810150\"\n",
 		)}},
 		{result: CommandResult{Stdout: []byte(
 			"31\tmissing-priority\tAudio/Sink\n" +

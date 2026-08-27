@@ -107,7 +107,9 @@ When an override is absent, the resolver MUST:
    candidate's parent USB-device syspath;
 2. reject missing, malformed, or non-unique physical-device association rather
    than guessing from VID/PID alone; when serials are present on both sides, a
-   mismatch also rejects the association;
+   mismatch also rejects the association; PipeWire's `device.serial` may use
+   udev's `ID_SERIAL` form, so an underscore-delimited vendor/model prefix is
+   ignored when comparing it with the USB device's raw serial attribute;
 3. list and inspect the requested sink or source nodes and retain only nodes
    whose `device.id` references that matched audio device;
 4. choose the node with the greatest integer `priority.session`, treating a
