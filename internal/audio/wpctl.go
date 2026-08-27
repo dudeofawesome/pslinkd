@@ -306,7 +306,10 @@ func parseInspectProperties(output []byte) (map[string]string, error) {
 		if strings.HasPrefix(value, "\"") {
 			decoded, err := strconv.Unquote(value)
 			if err != nil {
-				return nil, fmt.Errorf("invalid quoted value on inspect line %d", lineNumber+1)
+				if len(value) < 2 || !strings.HasSuffix(value, "\"") {
+					return nil, fmt.Errorf("invalid quoted value on inspect line %d", lineNumber+1)
+				}
+				decoded = value[1 : len(value)-1]
 			}
 			value = decoded
 		}

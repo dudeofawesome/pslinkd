@@ -133,7 +133,9 @@ func TestWPCTLAutomaticallyAssociatesUSBAndSelectsHighestPriorityNode(t *testing
 				"32\tzeta\tAudio/Sink\n33\talpha\tAudio/Sink\n34\tother-device\tAudio/Sink\n",
 		)}},
 		{result: CommandResult{Stdout: []byte(
-			"device.id = 20\nnode.name = \"missing-priority\"\n",
+			"device.id = 20\n" +
+				"iec958.codecs = \"[\"PCM\",\"DTS\",\"AC3\",\"EAC3\",\"TrueHD\",\"DTS-HD\"]\"\n" +
+				"node.name = \"missing-priority\"\n",
 		)}},
 		{result: CommandResult{Stdout: []byte(
 			"device.id = 20\nnode.name = \"zeta\"\npriority.session = 100\n",
@@ -205,6 +207,26 @@ func TestBelongsToUSBNormalizesSysfsMountPrefixAndPreservesBoundaries(t *testing
 					test.path, test.usbSyspath, got, test.want)
 			}
 		})
+	}
+}
+
+func TestParseInspectPropertiesAcceptsUnescapedInnerQuotes(t *testing.T) {
+	properties, err := parseInspectProperties([]byte(
+		"iec958.codecs = \"[\"PCM\",\"DTS\",\"AC3\"]\"\n" +
+			"node.name = \"headset\"\n",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := properties["iec958.codecs"]; got != "[\"PCM\",\"DTS\",\"AC3\"]" {
+		t.Fatalf("iec958.codecs = %q", got)
+	}
+}
+
+func TestParseInspectPropertiesRejectsUnterminatedQuotedValue(t *testing.T) {
+	_, err := parseInspectProperties([]byte("node.name = \"headset\n"))
+	if err == nil || !strings.Contains(err.Error(), "invalid quoted value") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

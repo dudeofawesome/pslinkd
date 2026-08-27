@@ -122,7 +122,9 @@ listing their names, priorities, kind, and selected name even though selection
 can continue. No eligible node, unparseable required properties, or an
 unresolvable device association is an audio-action failure handled by the
 normal retry policy. All device and node IDs MUST be resolved again on every
-action and retry. Locale MUST NOT affect list or inspection parsing.
+action and retry. Locale MUST NOT affect list or inspection parsing. Quoted
+values containing the unescaped inner quotes emitted by `wpctl inspect` for
+structured properties MUST NOT make otherwise usable inspection output fail.
 
 On connection, desired routing is the automatically discovered headset sink or
 its exact override. When source routing is enabled, connection likewise uses
