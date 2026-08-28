@@ -61,6 +61,7 @@ The module namespace is `services.pslinkd` and exposes typed options:
 | `polling.interval` | duration string, `200ms` | Feature-report interval |
 | `polling.disconnectFailures` | integer, `3` | Consecutive failures to disconnect |
 | `controls.enable` | boolean, `false` | Enable v1.1 volume/microphone convergence |
+| `controls.volumeMode` | enum, `host-only` | Select `host-only` or v1.1 `synchronized` volume behavior |
 | `logLevel` | enum, `info` | JSON log threshold |
 
 There is no username option: the owner is the account whose Home Manager
@@ -77,8 +78,10 @@ The module MUST declare the generated config and selected package in the unit's
 service when either changes. It MUST NOT override the user's global
 `systemd.user.startServices` policy.
 
-The v1.1 module adds only `controls.enable`; button decoding and event logging
-remain unconditional and do not expose per-button configuration.
+The v1.1 module adds `controls.enable`. V1.1.1 adds only
+`controls.volumeMode`; button decoding and event logging remain unconditional,
+and the module does not expose a device target, host step, or per-button
+configuration.
 
 The module MUST NOT enable, configure, or attempt to assert NixOS PipeWire,
 WirePlumber, users, groups, udev, or lingering options. Its documentation MUST

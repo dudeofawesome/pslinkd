@@ -58,6 +58,11 @@ The implementation MUST use hidraw feature-report ioctl calls only. It MUST NOT
 open a libusb interface, detach the kernel driver, read the hidraw interrupt
 stream, or otherwise consume endpoint `0x81`.
 
+V1.1.1 additionally uses `HIDIOCSFEATURE(22)` on the same read/write hidraw
+descriptor for the exact masked device-volume write in `v1.1.1.md`. Feature
+writes remain independently testable and MUST NOT delay report polling while
+audio subprocesses run or retry.
+
 The default poll interval is 200 ms and is configurable. Poll cancellation and
 device removal MUST allow prompt shutdown even if an ioctl is in progress.
 Expected errors such as `EPIPE` are samples for connection debouncing, not

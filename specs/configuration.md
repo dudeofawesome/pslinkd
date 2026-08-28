@@ -43,6 +43,7 @@ polling:
 
 controls:
   enabled: false
+  volume_mode: host-only
 
 logging:
   level: info
@@ -59,6 +60,7 @@ logging:
 | `polling.interval` | duration string | `200ms` | `50ms..10s` |
 | `polling.disconnect_failures` | integer | `3` | `1..50` |
 | `controls.enabled` | boolean | `false` | enables v1.1 volume/microphone convergence |
+| `controls.volume_mode` | string enum | `host-only` | `host-only` or v1.1 `synchronized`; inert when controls are disabled |
 | `logging.level` | string enum | `info` | `debug`, `info`, `warn`, or `error` |
 
 `fallback_source` controls whether default-source routing is enabled. With it
@@ -67,8 +69,8 @@ source routing is disabled and `headset_source` MUST also be unset. V1.1 has no
 per-button settings, relative-volume settings, or event hooks; such keys remain
 unknown-key errors.
 
-Device IDs, report layout, routing retry policy, and log format are not
-configurable in v1.
+V1.1.1 has no configurable device-volume target or host-volume step. Device
+IDs, report layout, routing retry policy, and log format are not configurable.
 
 ## Logs
 

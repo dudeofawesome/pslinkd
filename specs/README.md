@@ -17,6 +17,8 @@ chosen design.
 - [testing.md](testing.md): automated and Olympus hardware acceptance
   criteria.
 - [v1.1.md](v1.1.md): deferred button, volume, and microphone interactions.
+- [v1.1.1.md](v1.1.1.md): default host-only volume approximation using
+  device-volume restoration.
 - [v1.2.md](v1.2.md): deferred headset battery reporting.
 
 ## Requirement language
@@ -49,8 +51,15 @@ V1.1 adds the complete button-interaction vertical slice defined in
 [v1.1.md](v1.1.md). V1 implementation and release criteria MUST NOT depend on
 that deferred functionality.
 
+## V1.1.1 scope
+
+V1.1.1 adds the default host-only volume approximation defined in
+[v1.1.1.md](v1.1.1.md). It depends on v1.1 button decoding and control
+convergence but is independent of v1.2. Explicit `synchronized` mode preserves
+v1.1 behavior; host-only mode does not claim a firmware-level DSP bypass.
+
 ## V1.2 scope
 
 V1.2 adds change-only structured battery reporting from feature report `0x82`
-as defined in [v1.2.md](v1.2.md). It is independent of v1.1, and v1 and v1.1
-implementation and release criteria MUST NOT depend on it.
+as defined in [v1.2.md](v1.2.md). It is independent of v1.1 and v1.1.1, and
+their implementation and release criteria MUST NOT depend on it.

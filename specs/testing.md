@@ -133,11 +133,17 @@ Button-edge decoding, absolute volume and microphone state, control
 synchronization, and their hardware gates are specified in `v1.1.md`. They do
 not block v1.
 
+## V1.1.1 host-only volume
+
+Device-volume feature writing, relative host button behavior, configuration,
+and the firmware-1.38 hardware gates are specified in `v1.1.1.md`. They do not
+block v1 or v1.1 and are independent of v1.2.
+
 ## V1.2 battery reporting
 
 Feature-report `0x82` decoding, change-only structured battery records, and the
-firmware-1.38 hardware gates are specified in `v1.2.md`. They do not block v1
-or v1.1.
+firmware-1.38 hardware gates are specified in `v1.2.md`. They do not block v1,
+v1.1, or v1.1.1.
 
 ## Other tracked post-v1 hardware validation
 
