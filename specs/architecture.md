@@ -63,8 +63,11 @@ descriptor for the exact masked device-volume write in `v1.1.1.md`. Feature
 writes remain independently testable and MUST NOT delay report polling while
 audio subprocesses run or retry.
 
-The default poll interval is 200 ms and is configurable. Poll cancellation and
-device removal MUST allow prompt shutdown even if an ioctl is in progress.
+The default poll interval is 200 ms and is configurable. V1.1.1 host-only
+controls accelerate physical `0xB0` sampling to 50 ms while retaining the
+configured interval for radio-failure debounce accounting, as defined in
+`v1.1.1.md`. Poll cancellation and device removal MUST allow prompt shutdown
+even if an ioctl is in progress.
 Expected errors such as `EPIPE` are samples for connection debouncing, not
 process-fatal errors. Errors classified by the HID layer as expected disconnect
 samples (`EPIPE`, `ENODEV`, `EIO`, and `ETIMEDOUT`) MUST NOT emit HID failure or

@@ -13,6 +13,7 @@ const (
 	ReportLength             = 64
 	DeviceVolumeReportID     = byte(0xD0)
 	DeviceVolumeReportLength = 22
+	DeviceVolumeTarget       = uint8(11)
 
 	iocNRBits   = 8
 	iocTypeBits = 8
@@ -79,11 +80,11 @@ func SetFeatureRequest(length uint32) uintptr {
 		0x06<<iocNRShift)
 }
 
-func MaximumDeviceVolumePayload() []byte {
+func TargetDeviceVolumePayload() []byte {
 	payload := make([]byte, DeviceVolumeReportLength)
 	payload[0] = DeviceVolumeReportID
 	payload[1] = 0x02
-	payload[2] = 0x1e
+	payload[2] = DeviceVolumeTarget * 2
 	return payload
 }
 

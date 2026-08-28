@@ -412,12 +412,12 @@ func TestPollerReportsAndOmitsInvalidVolume(t *testing.T) {
 func TestHostOnlyDeviceVolumeRestoreUsesReadbackAndDoesNotRepeat(t *testing.T) {
 	below := featureReport(true)
 	below[44] = 7
-	maximum := featureReport(true)
-	maximum[44] = 15
+	target := featureReport(true)
+	target[44] = hid.DeviceVolumeTarget
 	reader := newScriptedReader(
 		scriptedResult{data: below},
-		scriptedResult{data: maximum},
-		scriptedResult{data: maximum},
+		scriptedResult{data: target},
+		scriptedResult{data: target},
 	)
 	h := newHarness(t, map[string]*scriptedReader{"/dev/hidraw1": reader})
 	h.poller.SetHostOnlyVolume(true)
@@ -427,7 +427,7 @@ func TestHostOnlyDeviceVolumeRestoreUsesReadbackAndDoesNotRepeat(t *testing.T) {
 	receiveInteraction(t, h.observer)
 	select {
 	case payload := <-reader.writes:
-		if !reflect.DeepEqual(payload, hid.MaximumDeviceVolumePayload()) {
+		if !reflect.DeepEqual(payload, hid.TargetDeviceVolumePayload()) {
 			t.Fatalf("feature payload = %x", payload)
 		}
 	case <-time.After(time.Second):
@@ -451,7 +451,7 @@ func TestHostOnlyDeviceVolumeRestoreUsesReadbackAndDoesNotRepeat(t *testing.T) {
 	h.tick()
 	select {
 	case payload := <-reader.writes:
-		t.Fatalf("repeated level-15 write = %x", payload)
+		t.Fatalf("repeated target-level write = %x", payload)
 	case path := <-h.observer.deviceRestored:
 		t.Fatalf("repeated restore confirmation for %q", path)
 	default:
@@ -496,11 +496,11 @@ func TestDeviceVolumeRestoreCoalescesRetriesAndInvalidatesStaleResults(t *testin
 	volume := uint8(5)
 	reader := newScriptedReader()
 	poller := &Poller{
-		hostOnlyVolume: true,
-		reader:         reader,
-		candidate:      discovery.Candidate{Devnode: "/dev/hidraw1"},
-		writeResults:   make(chan writeResult, 1),
+		reader:       reader,
+		candidate:    discovery.Candidate{Devnode: "/dev/hidraw1"},
+		writeResults: make(chan writeResult, 1),
 	}
+	poller.SetHostOnlyVolume(true)
 	poller.convergeDeviceVolume(&volume)
 	poller.convergeDeviceVolume(&volume)
 	select {
@@ -526,12 +526,12 @@ func TestDeviceVolumeRestoreRetriesAfterWriteFailure(t *testing.T) {
 	reader := newScriptedReader()
 	observer := &recordingObserver{writeFailures: make(chan error, 2)}
 	poller := &Poller{
-		hostOnlyVolume: true,
-		reader:         reader,
-		observer:       observer,
-		candidate:      discovery.Candidate{Devnode: "/dev/hidraw1"},
-		writeResults:   make(chan writeResult, 1),
+		reader:       reader,
+		observer:     observer,
+		candidate:    discovery.Candidate{Devnode: "/dev/hidraw1"},
+		writeResults: make(chan writeResult, 1),
 	}
+	poller.SetHostOnlyVolume(true)
 	poller.convergeDeviceVolume(&volume)
 	<-reader.writes
 	poller.finishDeviceVolumeWrite(writeResult{err: errors.New("write failed")})
@@ -548,6 +548,27 @@ func TestDeviceVolumeRestoreRetriesAfterWriteFailure(t *testing.T) {
 	case <-reader.writes:
 	case <-time.After(time.Second):
 		t.Fatal("failed restore was not retried")
+	}
+}
+
+func TestHostOnlyControlsUseFastReportsWithoutShorteningRadioDebounce(t *testing.T) {
+	observer := &recordingObserver{
+		connections: make(chan state.Connection, 2),
+	}
+	poller := New(200*time.Millisecond, 3, nil, nil, observer)
+	poller.SetHostOnlyVolume(true)
+	if got := poller.pollInterval(); got != 50*time.Millisecond {
+		t.Fatalf("host-only poll interval = %s", got)
+	}
+	poller.debouncer.AdapterAdded()
+	for sample := 0; sample < 11; sample++ {
+		if _, changed := poller.sample(false); changed {
+			t.Fatalf("disconnected after fast sample %d", sample+1)
+		}
+	}
+	if connection, changed := poller.sample(false); !changed ||
+		!connection.AdapterPresent || connection.HeadsetConnected {
+		t.Fatalf("twelfth fast failure = %#v, changed %v", connection, changed)
 	}
 }
 

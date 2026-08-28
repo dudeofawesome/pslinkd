@@ -4,14 +4,12 @@ pslinkd is a per-user Linux daemon that switches the WirePlumber default audio
 route when a Sony PULSE Elite headset connects to or disconnects from its
 PlayStation Link adapter. It also reports headset button, volume, and
 microphone-state changes. Optional controls keep microphone mute synchronized
-and, by default, approximate host-only volume by restoring device volume to 15
-and applying physical button edges to the host sink.
+and, by default, make the headset's volume buttons adjust the host sink.
 
-The USB audio device remains present while the headset is powered off, so
-pslinkd reads the adapter's HID radio-link state instead of treating USB audio
-presence as headset presence. It changes the default sink and, optionally, the
-default source. It does not move pinned streams or repeatedly overwrite later
-user choices.
+The USB audio device remains present while the headset is powered off, but
+pslinkd detects the headset's actual connection state. It changes the default
+sink and, optionally, the default source. It does not move pinned streams or
+repeatedly overwrite later user choices.
 
 ## Supported hardware
 
@@ -21,26 +19,22 @@ pslinkd supports exactly this device profile:
 | -------------- | --------------------------- |
 | Headset        | Sony PULSE Elite / CFI-ZWA2 |
 | USB adapter    | `054c:0ecc`                 |
-| HID interface  | `3`                         |
-| Feature report | `0xB0`, 64 bytes            |
 
 Other adapters are ignored, including Sony `054c:0fa3`. Device paths and
-serial numbers are discovered dynamically. If several supported adapters are
-present, pslinkd selects the one with the lexicographically first libudev
-syspath and logs a warning.
+serial numbers are discovered automatically. If several supported adapters are
+present, pslinkd consistently selects one and logs a warning.
 
 ## Runtime prerequisites
 
 pslinkd requires:
 
-- Linux with hidraw and libudev;
+- Linux;
 - a running PipeWire/WirePlumber user session with `wpctl` compatibility
-- host-level permission for the service user to read and write the supported
-  adapter's hidraw node.
+- host-level permission for the service user to access the supported adapter.
 
-The Nix package includes libudev linkage, `wpctl` in its immutable runtime
-path, and a scoped udev rule. Installing the package in a user profile does not
-activate that system-level rule.
+The Nix package includes its runtime dependencies and a scoped udev rule.
+Installing the package in a user profile does not activate that system-level
+rule.
 
 ## Find audio node names
 
@@ -103,8 +97,8 @@ assumes the flake inputs are passed to Home Manager with
       disconnectFailures = 3;
     };
 
-    # Button/state events are always logged. Controls default to host-only
-    # volume approximation; select "synchronized" for v1.1 absolute mapping.
+    # Button/state events are always logged. By default, headset volume buttons
+    # adjust system volume; select "synchronized" for direct volume mapping.
     controls = {
       enable = true;
       volumeMode = "host-only";
@@ -115,10 +109,15 @@ assumes the flake inputs are passed to Home Manager with
 }
 ```
 
-The module installs the selected package, generates strict YAML in the Nix
-store, and creates `pslinkd.service` in the owning user's normal systemd
-lifecycle. Configuration and package changes are service restart triggers. The
-module does not change the user's global `systemd.user.startServices` policy.
+The module installs the selected package, writes its configuration, and creates
+the `pslinkd.service` user service. Configuration and package changes restart
+the service during Home Manager activation.
+
+In the default `host-only` mode, the headset's volume buttons adjust system
+volume in both directions. The headset itself stays near 70% volume so rapid
+button presses can be detected reliably. This may reduce the highest attainable
+output level. Select `synchronized` instead if you prefer the headset's volume
+level to map directly to system volume.
 
 ### NixOS device permission
 
@@ -219,13 +218,10 @@ Every daemon record is one JSON object containing at least `time`, `level`,
 {"time":"2026-08-26T18:00:02Z","level":"info","event":"audio_action_succeeded","message":"audio defaults updated","attempt":1,"revision":2,"target_name":"alsa_output.usb-Sony_Interactive_Entertainment_PlayStation_Link_Adapter_SERIAL-00.analog-stereo"}
 ```
 
-Expected HID disconnect errors, including the adapter's normal `EPIPE` response
-while the headset is powered off, do not produce failure/recovery records.
-Unexpected HID and repeated audio failures are rate-limited. Audio failures
-retain the desired transition and retry with bounded backoff without stopping
-device monitoring. Permission errors include the hidraw path and error type;
-verify the active udev rule, `pslink` membership, and recreated login session
-when diagnosing them.
+Normal headset power-off does not produce failure/recovery records. Unexpected
+device and repeated audio failures are rate-limited, and pslinkd keeps
+monitoring and retrying. For permission errors, verify the active udev rule,
+`pslink` membership, and recreated login session.
 
 If an audio target cannot be resolved, compare `target_name` in the retry log
 with the exact `node.name` reported by `wpctl list`. Numeric IDs must not be put
@@ -233,10 +229,10 @@ in configuration.
 
 ## Behavior
 
-At the defaults, one connected report selects the headset route immediately.
-Three consecutive unsuccessful 200 ms samples select the fallback route.
-Adapter removal falls back immediately, and reinsertion is discovered without
-restarting the daemon.
+At the defaults, connecting the headset selects its route promptly. A brief
+disconnect is ignored to avoid route changes from transient failures; a
+sustained disconnect selects the fallback route. Adapter removal falls back
+immediately, and reinsertion is discovered without restarting the daemon.
 
 After pslinkd successfully handles a transition, a later default selected in
 GNOME or another client is left alone until the next headset transition or

@@ -151,7 +151,7 @@ in
       ];
       default = "host-only";
       description = ''
-        Volume behavior: host-only restores device level 15 and applies button
+        Volume behavior: host-only restores device level 11 and applies button
         steps to the host, while synchronized preserves v1.1 absolute mapping.
       '';
     };

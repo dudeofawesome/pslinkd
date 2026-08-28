@@ -72,3 +72,80 @@ func TestInteractionTrackerStateChangesInvalidVolumeAndReset(t *testing.T) {
 		t.Fatalf("reset baseline = %#v", baseline)
 	}
 }
+
+func TestInteractionTrackerInfersMissedDownStepsFromDeviceVolume(t *testing.T) {
+	tracker := &InteractionTracker{}
+	tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	update := tracker.Sample(hid.Report{Volume: volume(8)})
+	if update.HostVolumeDelta != -3 || update.InferredVolumeSteps != -3 ||
+		update.VolumeDownPressed {
+		t.Fatalf("inferred rapid down steps = %#v", update)
+	}
+}
+
+func TestInteractionTrackerDoesNotDoubleCountDelayedDeviceChange(t *testing.T) {
+	tracker := &InteractionTracker{}
+	tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	edge := tracker.Sample(hid.Report{
+		VolumeDownPressed: true,
+		Volume:            volume(hid.DeviceVolumeTarget),
+	})
+	if edge.HostVolumeDelta != -1 || edge.InferredVolumeSteps != 0 {
+		t.Fatalf("down edge = %#v", edge)
+	}
+	delayed := tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget - 1)})
+	if delayed.HostVolumeDelta != 0 || delayed.InferredVolumeSteps != 0 {
+		t.Fatalf("delayed device change was double counted: %#v", delayed)
+	}
+}
+
+func TestInteractionTrackerCountsExtraDecreaseBeyondObservedEdge(t *testing.T) {
+	tracker := &InteractionTracker{}
+	tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	update := tracker.Sample(hid.Report{
+		VolumeDownPressed: true,
+		Volume:            volume(hid.DeviceVolumeTarget - 2),
+	})
+	if update.HostVolumeDelta != -2 || update.InferredVolumeSteps != -1 {
+		t.Fatalf("partially observed rapid presses = %#v", update)
+	}
+}
+
+func TestInteractionTrackerDoesNotInferFromReturnToTarget(t *testing.T) {
+	tracker := &InteractionTracker{}
+	tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget - 2)})
+	update := tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	if update.HostVolumeDelta != 0 || update.InferredVolumeSteps != 0 {
+		t.Fatalf("restore was treated as a button press: %#v", update)
+	}
+}
+
+func TestInteractionTrackerInfersMissedUpStepsFromDeviceVolume(t *testing.T) {
+	tracker := &InteractionTracker{}
+	tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	update := tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget + 3)})
+	if update.HostVolumeDelta != 3 || update.InferredVolumeSteps != 3 ||
+		update.VolumeUpPressed {
+		t.Fatalf("inferred rapid up steps = %#v", update)
+	}
+	restored := tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	if restored.HostVolumeDelta != 0 {
+		t.Fatalf("downward restoration was treated as a press: %#v", restored)
+	}
+}
+
+func TestInteractionTrackerDoesNotDoubleCountDelayedUpChange(t *testing.T) {
+	tracker := &InteractionTracker{}
+	tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget)})
+	edge := tracker.Sample(hid.Report{
+		VolumeUpPressed: true,
+		Volume:          volume(hid.DeviceVolumeTarget),
+	})
+	if edge.HostVolumeDelta != 1 || edge.InferredVolumeSteps != 0 {
+		t.Fatalf("up edge = %#v", edge)
+	}
+	delayed := tracker.Sample(hid.Report{Volume: volume(hid.DeviceVolumeTarget + 1)})
+	if delayed.HostVolumeDelta != 0 || delayed.InferredVolumeSteps != 0 {
+		t.Fatalf("delayed up change was double counted: %#v", delayed)
+	}
+}

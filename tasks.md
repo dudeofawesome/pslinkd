@@ -167,7 +167,7 @@ change first.
 - [x] Add strict `controls.volume_mode` YAML and typed
   `services.pslinkd.controls.volumeMode` Home Manager enums with
   `host-only` as the default and explicit `synchronized` compatibility mode.
-- [x] Implement portable `HIDIOCSFEATURE(22)` support and the exact level-15
+- [x] Implement portable `HIDIOCSFEATURE(22)` support and the exact level-11
   `0xD0` device-volume payload without consuming the interrupt endpoint.
 - [x] Add cancellable, coalesced device-volume convergence with report readback,
   retry, recovery logging, and lifecycle invalidation.

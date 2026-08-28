@@ -96,14 +96,14 @@ func TestFeatureRequest(t *testing.T) {
 	}
 }
 
-func TestSetFeatureRequestAndMaximumVolumePayload(t *testing.T) {
+func TestSetFeatureRequestAndTargetVolumePayload(t *testing.T) {
 	if got := SetFeatureRequest(DeviceVolumeReportLength); got != 0xC0164806 {
 		t.Fatalf("HIDIOCSFEATURE(22) = %#x", got)
 	}
 	want := make([]byte, DeviceVolumeReportLength)
-	want[0], want[1], want[2] = 0xd0, 0x02, 0x1e
-	if got := MaximumDeviceVolumePayload(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("maximum-volume payload = %x, want %x", got, want)
+	want[0], want[1], want[2] = 0xd0, 0x02, 0x16
+	if got := TargetDeviceVolumePayload(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("target-volume payload = %x, want %x", got, want)
 	}
 }
 

@@ -238,6 +238,24 @@ func (observer *observer) InteractionChanged(update state.InteractionUpdate) {
 	if update.MicrophoneMutePressed {
 		observer.logger.Event(logging.Info, "microphone_mute_pressed", "headset microphone-mute button pressed", nil)
 	}
+	if observer.controlsEnabled && observer.volumeMode == config.VolumeModeHostOnly &&
+		update.InferredVolumeSteps != 0 {
+		direction := "up"
+		steps := update.InferredVolumeSteps
+		if steps < 0 {
+			direction = "down"
+			steps = -steps
+		}
+		observer.logger.Event(
+			logging.Info,
+			"volume_button_steps_inferred",
+			"host volume steps inferred from device-volume excursion",
+			logging.Fields{
+				"direction": direction,
+				"steps":     steps,
+			},
+		)
+	}
 	if !observer.controlsEnabled {
 		return
 	}
@@ -245,17 +263,12 @@ func (observer *observer) InteractionChanged(update state.InteractionUpdate) {
 	observer.desired.Volume = audio.OptionalVolume(update.Volume)
 	observer.desired.MicrophoneMuted = audio.OptionalBool(update.MicrophoneMuted)
 	if observer.volumeMode == config.VolumeModeHostOnly {
-		if update.VolumeUpPressed {
-			observer.desired.HostVolumeSteps++
-		}
-		if update.VolumeDownPressed {
-			observer.desired.HostVolumeSteps--
-		}
+		observer.desired.HostVolumeSteps += int64(update.HostVolumeDelta)
 	}
 	desired := observer.desired
 	observer.desiredMu.Unlock()
 	if !update.VolumeChanged && !update.MicrophoneChanged &&
-		!update.VolumeUpPressed && !update.VolumeDownPressed {
+		!update.VolumeUpPressed && !update.VolumeDownPressed && update.HostVolumeDelta == 0 {
 		return
 	}
 	sendLatest(observer.desiredStates, desired)
@@ -265,8 +278,8 @@ func (observer *observer) DeviceVolumeRestored(path string) {
 	observer.logger.Event(
 		logging.Info,
 		"device_volume_restored",
-		"headset device volume restored to level 15",
-		logging.Fields{"device_path": path, "volume": 15},
+		"headset device volume restored to level 11",
+		logging.Fields{"device_path": path, "volume": hid.DeviceVolumeTarget},
 	)
 }
 

@@ -4,6 +4,16 @@ Run non-basic commands from inside the devenv (`devenv shell --quiet -- {command
 
 - Newly added files **must** be staged before attempting to build so Git-backed Nix flakes include them in the source tree.
 
+# Documentation
+
+- Keep `README.md` user-focused: describe purpose, installation, configuration,
+  operation, user-visible behavior, limitations, and troubleshooting.
+- Put protocol details, internal algorithms, timing, payloads, implementation
+  constraints, and acceptance criteria in `specs/` or other developer
+  documentation, not in `README.md`.
+- When documenting a technical limitation in `README.md`, explain its practical
+  effect and the user's available choice without describing the mechanism.
+
 # Spec-driven development
 
 ## General Rules

@@ -13,6 +13,7 @@ import (
 	"github.com/dudeofawesome/pslinkd/internal/audio"
 	"github.com/dudeofawesome/pslinkd/internal/config"
 	"github.com/dudeofawesome/pslinkd/internal/discovery"
+	"github.com/dudeofawesome/pslinkd/internal/hid"
 	"github.com/dudeofawesome/pslinkd/internal/logging"
 	"github.com/dudeofawesome/pslinkd/internal/polling"
 	"github.com/dudeofawesome/pslinkd/internal/state"
@@ -149,16 +150,16 @@ func TestObserverHostOnlyConvertsIndependentButtonEdgesToSignedSteps(t *testing.
 	<-observer.desiredStates
 
 	observer.InteractionChanged(state.InteractionUpdate{
-		VolumeUpPressed: true, VolumeDownPressed: true,
+		VolumeUpPressed: true, VolumeDownPressed: true, HostVolumeDelta: 0,
 	})
 	if desired := <-observer.desiredStates; desired.HostVolumeSteps != 0 {
 		t.Fatalf("simultaneous edges produced steps: %#v", desired)
 	}
-	observer.InteractionChanged(state.InteractionUpdate{VolumeUpPressed: true})
+	observer.InteractionChanged(state.InteractionUpdate{VolumeUpPressed: true, HostVolumeDelta: 1})
 	if desired := <-observer.desiredStates; desired.HostVolumeSteps != 1 {
 		t.Fatalf("volume-up steps = %#v", desired)
 	}
-	observer.InteractionChanged(state.InteractionUpdate{VolumeDownPressed: true})
+	observer.InteractionChanged(state.InteractionUpdate{VolumeDownPressed: true, HostVolumeDelta: -1})
 	if desired := <-observer.desiredStates; desired.HostVolumeSteps != 0 {
 		t.Fatalf("volume-down steps = %#v", desired)
 	}
@@ -170,8 +171,30 @@ func TestObserverLogsOneDeviceVolumeRestoredEventPerCallback(t *testing.T) {
 	observer.DeviceVolumeRestored("/dev/hidraw3")
 	records := decodeRecords(t, output.String())
 	if len(records) != 1 || records[0]["event"] != "device_volume_restored" ||
-		records[0]["volume"] != float64(15) {
+		records[0]["volume"] != float64(hid.DeviceVolumeTarget) {
 		t.Fatalf("restore record = %#v", records)
+	}
+}
+
+func TestObserverLogsBidirectionalInferredVolumeSteps(t *testing.T) {
+	var output bytes.Buffer
+	observer := &observer{
+		logger:          logging.New(&output, "debug", nil),
+		desiredStates:   make(chan audio.Desired, 2),
+		controlsEnabled: true,
+		volumeMode:      config.VolumeModeHostOnly,
+	}
+	observer.InteractionChanged(state.InteractionUpdate{
+		HostVolumeDelta: 2, InferredVolumeSteps: 2,
+	})
+	observer.InteractionChanged(state.InteractionUpdate{
+		HostVolumeDelta: -3, InferredVolumeSteps: -3,
+	})
+	records := decodeRecords(t, output.String())
+	if len(records) != 2 || records[0]["direction"] != "up" ||
+		records[0]["steps"] != float64(2) || records[1]["direction"] != "down" ||
+		records[1]["steps"] != float64(3) {
+		t.Fatalf("inferred-step records = %#v", records)
 	}
 }
 

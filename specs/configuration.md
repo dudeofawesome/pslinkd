@@ -69,8 +69,12 @@ source routing is disabled and `headset_source` MUST also be unset. V1.1 has no
 per-button settings, relative-volume settings, or event hooks; such keys remain
 unknown-key errors.
 
-V1.1.1 has no configurable device-volume target or host-volume step. Device
-IDs, report layout, routing retry policy, and log format are not configurable.
+V1.1.1 uses fixed device-volume target 11 and has no configurable target or
+host-volume step. Device IDs, report layout, routing retry policy, and log
+format are not configurable.
+When host-only controls are enabled, physical feature-report sampling is
+accelerated to 50 ms when this configured interval is longer; radio failure
+debouncing still advances at the configured interval.
 
 ## Logs
 

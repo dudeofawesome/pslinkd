@@ -3,6 +3,7 @@ package polling
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/dudeofawesome/pslinkd/internal/discovery"
@@ -50,12 +51,13 @@ type Poller struct {
 	hasSelection    bool
 	reader          Reader
 	hadFailure      bool
-	hostOnlyVolume  bool
+	hostOnlyVolume  atomic.Bool
 	restoreActive   bool
 	writeInFlight   bool
 	waitingReadback bool
 	writeAttempt    int
 	retryPolls      int
+	failureElapsed  time.Duration
 	writeGeneration uint64
 	writeResults    chan writeResult
 }
@@ -78,7 +80,7 @@ func New(
 }
 
 func (poller *Poller) SetHostOnlyVolume(enabled bool) {
-	poller.hostOnlyVolume = enabled
+	poller.hostOnlyVolume.Store(enabled)
 }
 
 type readResult struct {
@@ -95,7 +97,7 @@ func (poller *Poller) Run(
 	ctx context.Context,
 	selections <-chan discovery.Candidate,
 ) error {
-	ticker := poller.clock.NewTicker(poller.interval)
+	ticker := poller.clock.NewTicker(poller.pollInterval())
 	defer ticker.Stop()
 	defer poller.closeReader()
 
@@ -198,6 +200,7 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 	poller.hasSelection = true
 	poller.candidate = candidate
 	poller.hadFailure = false
+	poller.failureElapsed = 0
 	if candidate.Devnode == "" {
 		poller.resetDeviceVolumeRestore()
 		poller.interactions.Reset()
@@ -226,6 +229,21 @@ func (poller *Poller) recovered() {
 }
 
 func (poller *Poller) sample(connected bool) (state.Connection, bool) {
+	if connected {
+		poller.failureElapsed = 0
+	} else {
+		actualInterval := poller.pollInterval()
+		debounceInterval := poller.interval
+		if debounceInterval <= 0 {
+			debounceInterval = actualInterval
+		}
+		poller.failureElapsed += actualInterval
+		if poller.failureElapsed < debounceInterval {
+			connection, _ := poller.debouncer.State()
+			return connection, false
+		}
+		poller.failureElapsed -= debounceInterval
+	}
 	if connection, changed := poller.debouncer.Sample(connected); changed {
 		if !connection.HeadsetConnected {
 			poller.interactions.Reset()
@@ -239,11 +257,18 @@ func (poller *Poller) sample(connected bool) (state.Connection, bool) {
 	return connection, false
 }
 
+func (poller *Poller) pollInterval() time.Duration {
+	if poller.hostOnlyVolume.Load() && poller.interval > 50*time.Millisecond {
+		return 50 * time.Millisecond
+	}
+	return poller.interval
+}
+
 func (poller *Poller) convergeDeviceVolume(volume *uint8) {
-	if !poller.hostOnlyVolume || volume == nil {
+	if !poller.hostOnlyVolume.Load() || volume == nil {
 		return
 	}
-	if *volume == 15 {
+	if *volume == hid.DeviceVolumeTarget {
 		if poller.restoreActive {
 			poller.restoreActive = false
 			poller.waitingReadback = false
@@ -274,7 +299,7 @@ func (poller *Poller) convergeDeviceVolume(volume *uint8) {
 	}
 	poller.writeInFlight = true
 	poller.writeAttempt++
-	payload := hid.MaximumDeviceVolumePayload()
+	payload := hid.TargetDeviceVolumePayload()
 	generation := poller.writeGeneration
 	go func() {
 		poller.writeResults <- writeResult{
@@ -328,7 +353,7 @@ func (poller *Poller) scheduleWriteRetry() {
 			delay = 30 * time.Second
 		}
 	}
-	interval := poller.interval
+	interval := poller.pollInterval()
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
 	}
