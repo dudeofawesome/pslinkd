@@ -3,8 +3,9 @@
 pslinkd is a per-user Linux daemon that switches the WirePlumber default audio
 route when a Sony PULSE Elite headset connects to or disconnects from its
 PlayStation Link adapter. It also reports headset button, volume, and
-microphone-state changes and can optionally converge absolute volume and mute
-state through WirePlumber.
+microphone-state changes. Optional controls keep microphone mute synchronized
+and, by default, approximate host-only volume by restoring device volume to 15
+and applying physical button edges to the host sink.
 
 The USB audio device remains present while the headset is powered off, so
 pslinkd reads the adapter's HID radio-link state instead of treating USB audio
@@ -102,9 +103,12 @@ assumes the flake inputs are passed to Home Manager with
       disconnectFailures = 3;
     };
 
-    # Button/state events are always logged. This additionally converges the
-    # headset's absolute volume and microphone mute state through wpctl.
-    controls.enable = false;
+    # Button/state events are always logged. Controls default to host-only
+    # volume approximation; select "synchronized" for v1.1 absolute mapping.
+    controls = {
+      enable = true;
+      volumeMode = "host-only";
+    };
 
     logLevel = "info";
   };
@@ -172,7 +176,7 @@ polling:
     disconnect_failures: 3
 
 controls:
-    enabled: false
+    enabled: true
 
 logging:
     level: info

@@ -104,6 +104,41 @@ func (adapter *WPCTL) SetVolume(ctx context.Context, target Target, volume uint8
 	return nil
 }
 
+func (adapter *WPCTL) GetVolume(ctx context.Context, target Target) (float64, error) {
+	id, err := adapter.resolveTarget(ctx, Sink, target)
+	if err != nil {
+		return 0, err
+	}
+	result, err := adapter.run(ctx, "get-volume", id)
+	if err != nil {
+		return 0, fmt.Errorf("get sink target %q volume: %w", target.Name, err)
+	}
+	fields := strings.Fields(string(result.Stdout))
+	if len(fields) < 2 || fields[0] != "Volume:" {
+		return 0, fmt.Errorf("parse sink target %q volume: malformed wpctl output", target.Name)
+	}
+	volume, err := strconv.ParseFloat(fields[1], 64)
+	if err != nil || volume < 0 {
+		return 0, fmt.Errorf("parse sink target %q volume %q", target.Name, fields[1])
+	}
+	return volume, nil
+}
+
+func (adapter *WPCTL) SetVolumeScalar(ctx context.Context, target Target, volume float64) error {
+	if volume < 0 || volume > 1 {
+		return fmt.Errorf("volume %g is outside 0..1", volume)
+	}
+	id, err := adapter.resolveTarget(ctx, Sink, target)
+	if err != nil {
+		return err
+	}
+	value := strconv.FormatFloat(volume, 'f', -1, 64)
+	if _, err := adapter.run(ctx, "set-volume", id, value); err != nil {
+		return fmt.Errorf("set sink target %q volume to %s: %w", target.Name, value, err)
+	}
+	return nil
+}
+
 func (adapter *WPCTL) SetMute(ctx context.Context, target Target, muted bool) error {
 	id, err := adapter.resolveTarget(ctx, Source, target)
 	if err != nil {

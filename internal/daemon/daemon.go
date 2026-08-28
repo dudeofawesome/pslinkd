@@ -73,6 +73,7 @@ func Run(
 			FallbackSource: cfg.Audio.FallbackSource,
 		},
 		controlsEnabled: cfg.Controls.Enabled,
+		volumeMode:      cfg.Controls.VolumeMode,
 	}
 	if setter, ok := dependencies.AudioSetter.(interface {
 		SetResolverObserver(audio.ResolverObserver)
@@ -87,6 +88,9 @@ func Run(
 		dependencies.PollClock,
 		dependencies.OpenReader,
 		observer,
+	)
+	poller.SetHostOnlyVolume(
+		cfg.Controls.Enabled && cfg.Controls.VolumeMode == config.VolumeModeHostOnly,
 	)
 	controller := audio.NewController(
 		dependencies.AudioSetter,
@@ -142,7 +146,9 @@ type observer struct {
 	desiredMu       sync.Mutex
 	desired         audio.Desired
 	controlsEnabled bool
+	volumeMode      string
 	hidEpisode      atomic.Uint64
+	hidWriteFailed  atomic.Bool
 }
 
 func (observer *observer) SelectionChanged(candidate discovery.Candidate) {
@@ -167,6 +173,7 @@ func (observer *observer) SelectionChanged(candidate discovery.Candidate) {
 	}
 	observer.selected = candidate
 	observer.hidEpisode.Add(1)
+	observer.hidWriteFailed.Store(false)
 	sendLatest(observer.selections, candidate)
 }
 
@@ -197,6 +204,7 @@ func (observer *observer) ConnectionChanged(connection state.Connection) {
 	desired := audio.Desired{
 		HeadsetConnected: connection.HeadsetConnected,
 		ControlsEnabled:  observer.controlsEnabled,
+		VolumeMode:       observer.volumeMode,
 		USB: audio.USBIdentity{
 			Syspath:    selected.USBParentSyspath,
 			Serial:     selected.USBSerial,
@@ -230,15 +238,66 @@ func (observer *observer) InteractionChanged(update state.InteractionUpdate) {
 	if update.MicrophoneMutePressed {
 		observer.logger.Event(logging.Info, "microphone_mute_pressed", "headset microphone-mute button pressed", nil)
 	}
-	if !observer.controlsEnabled || (!update.VolumeChanged && !update.MicrophoneChanged) {
+	if !observer.controlsEnabled {
 		return
 	}
 	observer.desiredMu.Lock()
 	observer.desired.Volume = audio.OptionalVolume(update.Volume)
 	observer.desired.MicrophoneMuted = audio.OptionalBool(update.MicrophoneMuted)
+	if observer.volumeMode == config.VolumeModeHostOnly {
+		if update.VolumeUpPressed {
+			observer.desired.HostVolumeSteps++
+		}
+		if update.VolumeDownPressed {
+			observer.desired.HostVolumeSteps--
+		}
+	}
 	desired := observer.desired
 	observer.desiredMu.Unlock()
+	if !update.VolumeChanged && !update.MicrophoneChanged &&
+		!update.VolumeUpPressed && !update.VolumeDownPressed {
+		return
+	}
 	sendLatest(observer.desiredStates, desired)
+}
+
+func (observer *observer) DeviceVolumeRestored(path string) {
+	observer.logger.Event(
+		logging.Info,
+		"device_volume_restored",
+		"headset device volume restored to level 15",
+		logging.Fields{"device_path": path, "volume": 15},
+	)
+}
+
+func (observer *observer) DeviceVolumeWriteFailure(path string, err error) {
+	observer.hidWriteFailed.Store(true)
+	key := fmt.Sprintf("hid-write:%d:%s:%s", observer.hidEpisode.Load(), reflect.TypeOf(err), err)
+	observer.logger.RateLimited(
+		key,
+		failureLogInterval,
+		logging.Warn,
+		"hid_failure",
+		"HID feature report write failed",
+		logging.Fields{
+			"device_path": path,
+			"report_id":   "0xd0",
+			"error":       err.Error(),
+			"error_type":  fmt.Sprintf("%T", err),
+		},
+	)
+}
+
+func (observer *observer) DeviceVolumeWriteRecovered(path string) {
+	if !observer.hidWriteFailed.CompareAndSwap(true, false) {
+		return
+	}
+	observer.logger.Event(
+		logging.Info,
+		"hid_recovered",
+		"HID feature report writes recovered",
+		logging.Fields{"device_path": path, "report_id": "0xd0"},
+	)
 }
 
 func (observer *observer) InvalidVolume(path string, value uint8) {

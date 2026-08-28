@@ -164,19 +164,19 @@ change first.
 
 ## 11a. V1.1.1 host-only volume mode
 
-- [ ] Add strict `controls.volume_mode` YAML and typed
+- [x] Add strict `controls.volume_mode` YAML and typed
   `services.pslinkd.controls.volumeMode` Home Manager enums with
   `host-only` as the default and explicit `synchronized` compatibility mode.
-- [ ] Implement portable `HIDIOCSFEATURE(22)` support and the exact level-15
+- [x] Implement portable `HIDIOCSFEATURE(22)` support and the exact level-15
   `0xD0` device-volume payload without consuming the interrupt endpoint.
-- [ ] Add cancellable, coalesced device-volume convergence with report readback,
+- [x] Add cancellable, coalesced device-volume convergence with report readback,
   retry, recovery logging, and lifecycle invalidation.
-- [ ] Add fresh headset-sink volume reads and idempotent absolute host-volume
+- [x] Add fresh headset-sink volume reads and idempotent absolute host-volume
   targets for `1 / 15` button steps, including pending-edge accumulation and
   clamping.
-- [ ] Keep raw absolute-volume logging while suppressing v1.1 absolute host
+- [x] Keep raw absolute-volume logging while suppressing v1.1 absolute host
   convergence in `host-only` mode; leave microphone behavior unchanged.
-- [ ] Add every automated acceptance test in `specs/v1.1.1.md`.
+- [x] Add every automated acceptance test in `specs/v1.1.1.md`.
 - [ ] Run and record every Olympus v1.1.1 release gate before releasing v1.1.1.
 
 ## 12. V1.2 battery reporting

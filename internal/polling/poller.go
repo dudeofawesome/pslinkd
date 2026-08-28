@@ -15,6 +15,10 @@ type Reader interface {
 	Close() error
 }
 
+type Writer interface {
+	WriteFeature([]byte) error
+}
+
 type OpenReader func(string) (Reader, error)
 
 type Ticker interface {
@@ -42,10 +46,18 @@ type Poller struct {
 	debouncer    *state.Debouncer
 	interactions state.InteractionTracker
 
-	candidate    discovery.Candidate
-	hasSelection bool
-	reader       Reader
-	hadFailure   bool
+	candidate       discovery.Candidate
+	hasSelection    bool
+	reader          Reader
+	hadFailure      bool
+	hostOnlyVolume  bool
+	restoreActive   bool
+	writeInFlight   bool
+	waitingReadback bool
+	writeAttempt    int
+	retryPolls      int
+	writeGeneration uint64
+	writeResults    chan writeResult
 }
 
 func New(
@@ -56,17 +68,27 @@ func New(
 	observer Observer,
 ) *Poller {
 	return &Poller{
-		interval:  interval,
-		clock:     clock,
-		open:      open,
-		observer:  observer,
-		debouncer: state.NewDebouncer(disconnectFailures),
+		interval:     interval,
+		clock:        clock,
+		open:         open,
+		observer:     observer,
+		debouncer:    state.NewDebouncer(disconnectFailures),
+		writeResults: make(chan writeResult, 1),
 	}
+}
+
+func (poller *Poller) SetHostOnlyVolume(enabled bool) {
+	poller.hostOnlyVolume = enabled
 }
 
 type readResult struct {
 	data []byte
 	err  error
+}
+
+type writeResult struct {
+	generation uint64
+	err        error
 }
 
 func (poller *Poller) Run(
@@ -86,6 +108,8 @@ func (poller *Poller) Run(
 				return errors.New("discovery selection channel closed")
 			}
 			poller.selectCandidate(candidate)
+		case result := <-poller.writeResults:
+			poller.finishDeviceVolumeWrite(result)
 		case <-ticker.C():
 			if poller.candidate.Devnode == "" {
 				continue
@@ -116,39 +140,45 @@ func (poller *Poller) waitForRead(
 	selections <-chan discovery.Candidate,
 	results <-chan readResult,
 ) bool {
-	select {
-	case <-ctx.Done():
-		poller.closeReader()
-		return true
-	case candidate, ok := <-selections:
-		if !ok {
+	for {
+		select {
+		case <-ctx.Done():
 			poller.closeReader()
 			return true
-		}
-		poller.selectCandidate(candidate)
-		return false
-	case result := <-results:
-		if result.err != nil {
-			poller.failedSample(result.err)
+		case candidate, ok := <-selections:
+			if !ok {
+				poller.closeReader()
+				return true
+			}
+			poller.selectCandidate(candidate)
+			return false
+		case result := <-poller.writeResults:
+			poller.finishDeviceVolumeWrite(result)
+			continue
+		case result := <-results:
+			if result.err != nil {
+				poller.failedSample(result.err)
+				return false
+			}
+			report, err := hid.DecodeReport(result.data)
+			if err != nil {
+				poller.failedSample(err)
+				return false
+			}
+			poller.recovered()
+			connection, _ := poller.sample(report.Connected)
+			if !connection.HeadsetConnected {
+				return false
+			}
+			if report.InvalidVolume != nil {
+				poller.observer.InvalidVolume(poller.candidate.Devnode, *report.InvalidVolume)
+			}
+			if update := poller.interactions.Sample(report); update.Changed() {
+				poller.observer.InteractionChanged(update)
+			}
+			poller.convergeDeviceVolume(report.Volume)
 			return false
 		}
-		report, err := hid.DecodeReport(result.data)
-		if err != nil {
-			poller.failedSample(err)
-			return false
-		}
-		poller.recovered()
-		connection, _ := poller.sample(report.Connected)
-		if !connection.HeadsetConnected {
-			return false
-		}
-		if report.InvalidVolume != nil {
-			poller.observer.InvalidVolume(poller.candidate.Devnode, *report.InvalidVolume)
-		}
-		if update := poller.interactions.Sample(report); update.Changed() {
-			poller.observer.InteractionChanged(update)
-		}
-		return false
 	}
 }
 
@@ -157,6 +187,7 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 		return
 	}
 	if poller.hasSelection && poller.candidate.Devnode != "" {
+		poller.resetDeviceVolumeRestore()
 		poller.closeReader()
 		poller.interactions.Reset()
 		if connection, changed := poller.debouncer.AdapterAbsent(); changed {
@@ -168,6 +199,7 @@ func (poller *Poller) selectCandidate(candidate discovery.Candidate) {
 	poller.candidate = candidate
 	poller.hadFailure = false
 	if candidate.Devnode == "" {
+		poller.resetDeviceVolumeRestore()
 		poller.interactions.Reset()
 		if connection, changed := poller.debouncer.AdapterAbsent(); changed {
 			poller.observer.ConnectionChanged(connection)
@@ -197,12 +229,110 @@ func (poller *Poller) sample(connected bool) (state.Connection, bool) {
 	if connection, changed := poller.debouncer.Sample(connected); changed {
 		if !connection.HeadsetConnected {
 			poller.interactions.Reset()
+			poller.resetDeviceVolumeRestore()
+			poller.closeReader()
 		}
 		poller.observer.ConnectionChanged(connection)
 		return connection, true
 	}
 	connection, _ := poller.debouncer.State()
 	return connection, false
+}
+
+func (poller *Poller) convergeDeviceVolume(volume *uint8) {
+	if !poller.hostOnlyVolume || volume == nil {
+		return
+	}
+	if *volume == 15 {
+		if poller.restoreActive {
+			poller.restoreActive = false
+			poller.waitingReadback = false
+			if observer, ok := poller.observer.(interface{ DeviceVolumeRestored(string) }); ok {
+				observer.DeviceVolumeRestored(poller.candidate.Devnode)
+			}
+		}
+		return
+	}
+	poller.restoreActive = true
+	if poller.writeInFlight {
+		return
+	}
+	if poller.retryPolls > 0 {
+		poller.retryPolls--
+		return
+	}
+	// A successful write is not convergence. Wait for one authoritative B0
+	// readback before retrying an unconfirmed restore.
+	if poller.waitingReadback {
+		poller.waitingReadback = false
+	}
+	writer, ok := poller.reader.(Writer)
+	if !ok {
+		poller.reportDeviceVolumeWriteFailure(errors.New("HID reader does not support feature writes"))
+		poller.scheduleWriteRetry()
+		return
+	}
+	poller.writeInFlight = true
+	poller.writeAttempt++
+	payload := hid.MaximumDeviceVolumePayload()
+	generation := poller.writeGeneration
+	go func() {
+		poller.writeResults <- writeResult{
+			generation: generation,
+			err:        writer.WriteFeature(payload),
+		}
+	}()
+}
+
+func (poller *Poller) finishDeviceVolumeWrite(result writeResult) {
+	if result.generation != poller.writeGeneration {
+		return
+	}
+	poller.writeInFlight = false
+	if result.err != nil {
+		poller.waitingReadback = false
+		poller.scheduleWriteRetry()
+		if !hid.IsExpectedReadError(result.err) {
+			poller.reportDeviceVolumeWriteFailure(result.err)
+		}
+		return
+	}
+	poller.writeAttempt = 0
+	poller.retryPolls = 0
+	poller.waitingReadback = true
+	if observer, ok := poller.observer.(interface{ DeviceVolumeWriteRecovered(string) }); ok {
+		observer.DeviceVolumeWriteRecovered(poller.candidate.Devnode)
+	}
+}
+
+func (poller *Poller) reportDeviceVolumeWriteFailure(err error) {
+	if observer, ok := poller.observer.(interface{ DeviceVolumeWriteFailure(string, error) }); ok {
+		observer.DeviceVolumeWriteFailure(poller.candidate.Devnode, err)
+	}
+}
+
+func (poller *Poller) resetDeviceVolumeRestore() {
+	poller.writeGeneration++
+	poller.restoreActive = false
+	poller.waitingReadback = false
+	poller.writeInFlight = false
+	poller.writeAttempt = 0
+	poller.retryPolls = 0
+}
+
+func (poller *Poller) scheduleWriteRetry() {
+	delay := 250 * time.Millisecond
+	for attempt := 1; attempt < poller.writeAttempt && delay < 30*time.Second; attempt++ {
+		delay *= 2
+		if delay > 30*time.Second {
+			delay = 30 * time.Second
+		}
+	}
+	interval := poller.interval
+	if interval <= 0 {
+		interval = 200 * time.Millisecond
+	}
+	poller.retryPolls = int((delay + interval - 1) / interval)
 }
 
 func (poller *Poller) closeReader() {

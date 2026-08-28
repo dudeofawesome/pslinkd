@@ -29,6 +29,9 @@ func TestDecodeMinimalAppliesDefaults(t *testing.T) {
 	if cfg.Controls.Enabled {
 		t.Error("controls enabled by default")
 	}
+	if cfg.Controls.VolumeMode != VolumeModeHostOnly {
+		t.Errorf("volume mode = %q", cfg.Controls.VolumeMode)
+	}
 }
 
 func TestDecodeFullConfigWithCommentsAndSources(t *testing.T) {
@@ -44,6 +47,7 @@ polling:
   disconnect_failures: 50
 controls:
   enabled: true
+  volume_mode: synchronized
 logging:
   level: debug
 `))
@@ -55,6 +59,9 @@ logging:
 	}
 	if !cfg.Controls.Enabled {
 		t.Fatal("controls were not enabled")
+	}
+	if cfg.Controls.VolumeMode != VolumeModeSynchronized {
+		t.Fatalf("volume mode = %q", cfg.Controls.VolumeMode)
 	}
 }
 
@@ -94,6 +101,8 @@ func TestDecodeRejectsInvalidConfigurations(t *testing.T) {
 		"many failures":         minimal + "polling:\n  disconnect_failures: 51\n",
 		"invalid level":         minimal + "logging:\n  level: verbose\n",
 		"controls type":         minimal + "controls:\n  enabled: 'true'\n",
+		"volume mode type":      minimal + "controls:\n  volume_mode: false\n",
+		"invalid volume mode":   minimal + "controls:\n  volume_mode: bypass\n",
 		"implicit node name":    "audio:\n  headset_sink: on\n  fallback_sink: false\n",
 		"multiple documents":    minimal + "---\naudio: {}\n",
 	}

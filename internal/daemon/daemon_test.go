@@ -137,6 +137,44 @@ func TestObserverCarriesCompleteEnabledControlStateIntoDesiredRevision(t *testin
 	}
 }
 
+func TestObserverHostOnlyConvertsIndependentButtonEdgesToSignedSteps(t *testing.T) {
+	observer := &observer{
+		logger:          logging.New(&bytes.Buffer{}, "debug", nil),
+		selections:      make(chan discovery.Candidate, 1),
+		desiredStates:   make(chan audio.Desired, 1),
+		controlsEnabled: true,
+		volumeMode:      config.VolumeModeHostOnly,
+	}
+	observer.ConnectionChanged(state.Connection{AdapterPresent: true, HeadsetConnected: true})
+	<-observer.desiredStates
+
+	observer.InteractionChanged(state.InteractionUpdate{
+		VolumeUpPressed: true, VolumeDownPressed: true,
+	})
+	if desired := <-observer.desiredStates; desired.HostVolumeSteps != 0 {
+		t.Fatalf("simultaneous edges produced steps: %#v", desired)
+	}
+	observer.InteractionChanged(state.InteractionUpdate{VolumeUpPressed: true})
+	if desired := <-observer.desiredStates; desired.HostVolumeSteps != 1 {
+		t.Fatalf("volume-up steps = %#v", desired)
+	}
+	observer.InteractionChanged(state.InteractionUpdate{VolumeDownPressed: true})
+	if desired := <-observer.desiredStates; desired.HostVolumeSteps != 0 {
+		t.Fatalf("volume-down steps = %#v", desired)
+	}
+}
+
+func TestObserverLogsOneDeviceVolumeRestoredEventPerCallback(t *testing.T) {
+	var output bytes.Buffer
+	observer := &observer{logger: logging.New(&output, "debug", nil)}
+	observer.DeviceVolumeRestored("/dev/hidraw3")
+	records := decodeRecords(t, output.String())
+	if len(records) != 1 || records[0]["event"] != "device_volume_restored" ||
+		records[0]["volume"] != float64(15) {
+		t.Fatalf("restore record = %#v", records)
+	}
+}
+
 func TestObserverCarriesSelectedUSBIdentityIntoConnectedAudioAction(t *testing.T) {
 	observer := &observer{
 		logger:        logging.New(&bytes.Buffer{}, "debug", nil),

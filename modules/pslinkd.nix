@@ -76,7 +76,10 @@ let
       disconnect_failures = cfg.polling.disconnectFailures;
     };
 
-    controls.enabled = cfg.controls.enable;
+    controls = {
+      enabled = cfg.controls.enable;
+      volume_mode = cfg.controls.volumeMode;
+    };
 
     logging.level = cfg.logLevel;
   };
@@ -138,7 +141,19 @@ in
     controls.enable = mkOption {
       type = types.bool;
       default = false;
-      description = "Synchronize absolute headset volume and microphone mute state through wpctl.";
+      description = "Enable headset volume and microphone control convergence.";
+    };
+
+    controls.volumeMode = mkOption {
+      type = types.enum [
+        "host-only"
+        "synchronized"
+      ];
+      default = "host-only";
+      description = ''
+        Volume behavior: host-only restores device level 15 and applies button
+        steps to the host, while synchronized preserves v1.1 absolute mapping.
+      '';
     };
 
     logLevel = mkOption {

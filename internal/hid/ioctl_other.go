@@ -17,6 +17,10 @@ func (*FeatureReader) ReadFeature() ([]byte, error) {
 	return nil, errors.New("hidraw feature reports require Linux")
 }
 
+func (*FeatureReader) WriteFeature([]byte) error {
+	return errors.New("hidraw feature reports require Linux")
+}
+
 func (*FeatureReader) Close() error {
 	return nil
 }

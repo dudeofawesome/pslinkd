@@ -26,9 +26,10 @@ firmware 1.38 release gates.
 
 ## v1.1.1: host-only volume approximation
 
-This proposed milestone adds an opt-in mode that restores device volume to its
-maximum and converts physical volume-button edges into relative host-volume
-steps. It is an approximation, not a hardware DSP bypass.
+This milestone makes host-only volume the default when controls are enabled:
+it restores device volume to its maximum and converts physical volume-button
+edges into relative host-volume steps. Explicit `synchronized` mode preserves
+v1.1 behavior. Host-only volume is an approximation, not a hardware DSP bypass.
 
 See [`specs/v1.1.1.md`](specs/v1.1.1.md) for the protocol limitations,
 acceptance criteria, and hardware release gates.

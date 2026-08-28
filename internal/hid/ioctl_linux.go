@@ -47,6 +47,30 @@ func (reader *FeatureReader) ReadFeature() ([]byte, error) {
 	return buffer, nil
 }
 
+func (reader *FeatureReader) WriteFeature(payload []byte) error {
+	if len(payload) != DeviceVolumeReportLength || payload[0] != DeviceVolumeReportID {
+		return fmt.Errorf("invalid HID feature payload")
+	}
+	reader.mu.Lock()
+	if reader.file == nil {
+		reader.mu.Unlock()
+		return os.ErrClosed
+	}
+	file := reader.file
+	reader.mu.Unlock()
+
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		file.Fd(),
+		SetFeatureRequest(uint32(len(payload))),
+		uintptr(unsafe.Pointer(&payload[0])),
+	)
+	if errno != 0 {
+		return fmt.Errorf("HIDIOCSFEATURE report 0x%02x: %w", payload[0], errno)
+	}
+	return nil
+}
+
 func (reader *FeatureReader) Close() error {
 	reader.mu.Lock()
 	defer reader.mu.Unlock()

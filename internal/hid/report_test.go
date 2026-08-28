@@ -2,6 +2,7 @@ package hid
 
 import (
 	"errors"
+	"reflect"
 	"syscall"
 	"testing"
 )
@@ -92,6 +93,17 @@ func TestDecodeReportRejectsWrongShape(t *testing.T) {
 func TestFeatureRequest(t *testing.T) {
 	if got := FeatureRequest(ReportLength); got != 0xC0404807 {
 		t.Fatalf("HIDIOCGFEATURE(64) = %#x", got)
+	}
+}
+
+func TestSetFeatureRequestAndMaximumVolumePayload(t *testing.T) {
+	if got := SetFeatureRequest(DeviceVolumeReportLength); got != 0xC0164806 {
+		t.Fatalf("HIDIOCSFEATURE(22) = %#x", got)
+	}
+	want := make([]byte, DeviceVolumeReportLength)
+	want[0], want[1], want[2] = 0xd0, 0x02, 0x1e
+	if got := MaximumDeviceVolumePayload(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("maximum-volume payload = %x, want %x", got, want)
 	}
 }
 

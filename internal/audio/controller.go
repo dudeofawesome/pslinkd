@@ -2,6 +2,7 @@ package audio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -15,6 +16,11 @@ type Setter interface {
 	SetDefault(context.Context, Kind, Target) error
 	SetVolume(context.Context, Target, uint8) error
 	SetMute(context.Context, Target, bool) error
+}
+
+type ScalarVolumeSetter interface {
+	GetVolume(context.Context, Target) (float64, error)
+	SetVolumeScalar(context.Context, Target, float64) error
 }
 
 type USBIdentity struct {
@@ -40,6 +46,8 @@ type Desired struct {
 	HeadsetConnected bool
 	USB              USBIdentity
 	ControlsEnabled  bool
+	VolumeMode       string
+	HostVolumeSteps  int64
 	Volume           OptionalVolume
 	MicrophoneMuted  OptionalBool
 }
@@ -114,14 +122,21 @@ type actionResult struct {
 	err      error
 }
 
+type hostResolution struct {
+	revision uint64
+	target   float64
+}
+
 type actionPlan struct {
-	route  bool
-	volume bool
-	mute   bool
+	route      bool
+	volume     bool
+	mute       bool
+	hostVolume bool
 }
 
 func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desired) error {
 	results := make(chan actionResult, 1)
+	hostResolutions := make(chan hostResolution)
 	var revision uint64
 	var current Desired
 	var applied *Desired
@@ -130,6 +145,9 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 	var actionCancel context.CancelFunc
 	var retryTimer Timer
 	var retry <-chan time.Time
+	var settledHostSteps int64
+	var lastHostSteps int64
+	var hostTarget *float64
 
 	stopCurrent := func() {
 		if actionCancel != nil {
@@ -151,8 +169,18 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 		currentDesired := current
 		currentAttempt := attempt
 		currentPlan := plan
+		currentHostTarget := hostTarget
+		currentSettledHostSteps := settledHostSteps
 		go func() {
-			err := controller.apply(actionContext, currentDesired, currentPlan)
+			err := controller.apply(
+				actionContext,
+				currentRevision,
+				currentDesired,
+				currentPlan,
+				currentHostTarget,
+				currentSettledHostSteps,
+				hostResolutions,
+			)
 			result := actionResult{
 				revision: currentRevision,
 				desired:  currentDesired,
@@ -175,9 +203,26 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 				return fmt.Errorf("desired audio state channel closed")
 			}
 			stopCurrent()
+			sameHostSession := current.HeadsetConnected && desired.HeadsetConnected &&
+				current.ControlsEnabled && desired.ControlsEnabled &&
+				current.VolumeMode == "host-only" && desired.VolumeMode == "host-only" &&
+				current.USB == desired.USB
+			if sameHostSession && hostTarget != nil {
+				value := clampVolume(*hostTarget + float64(desired.HostVolumeSteps-lastHostSteps)/15)
+				hostTarget = &value
+			} else if !sameHostSession {
+				hostTarget = nil
+				settledHostSteps = 0
+			}
+			lastHostSteps = desired.HostVolumeSteps
 			revision++
 			current = desired
-			plan = controller.plan(desired, applied)
+			plan = controller.plan(desired, applied, settledHostSteps)
+			if plan == (actionPlan{}) {
+				value := desired
+				applied = &value
+				continue
+			}
 			attempt = 1
 			startAction()
 		case result := <-results:
@@ -189,6 +234,10 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 			if result.err == nil {
 				value := result.desired
 				applied = &value
+				if plan.hostVolume {
+					settledHostSteps = result.desired.HostVolumeSteps
+					hostTarget = nil
+				}
 				controller.observer.AudioActionSucceeded(
 					result.revision,
 					result.desired,
@@ -209,14 +258,24 @@ func (controller *Controller) Run(ctx context.Context, desiredStates <-chan Desi
 			retry = nil
 			attempt++
 			startAction()
+		case resolution := <-hostResolutions:
+			if resolution.revision == revision {
+				value := resolution.target
+				hostTarget = &value
+			}
 		}
 	}
 }
 
-func (controller *Controller) plan(desired Desired, applied *Desired) actionPlan {
+func (controller *Controller) plan(
+	desired Desired,
+	applied *Desired,
+	settledHostSteps int64,
+) actionPlan {
 	route := applied == nil || desired.HeadsetConnected != applied.HeadsetConnected ||
 		(desired.HeadsetConnected && desired.USB != applied.USB)
-	volume := desired.ControlsEnabled && desired.HeadsetConnected && desired.Volume.Valid &&
+	volume := desired.ControlsEnabled && desired.VolumeMode != "host-only" &&
+		desired.HeadsetConnected && desired.Volume.Valid &&
 		(applied == nil || !applied.ControlsEnabled || !applied.HeadsetConnected ||
 			!applied.Volume.Valid || desired.Volume.Value != applied.Volume.Value ||
 			desired.USB != applied.USB)
@@ -226,10 +285,20 @@ func (controller *Controller) plan(desired Desired, applied *Desired) actionPlan
 			!applied.MicrophoneMuted.Valid ||
 			desired.MicrophoneMuted.Value != applied.MicrophoneMuted.Value ||
 			desired.USB != applied.USB)
-	return actionPlan{route: route, volume: volume, mute: mute}
+	hostVolume := desired.ControlsEnabled && desired.VolumeMode == "host-only" &&
+		desired.HeadsetConnected && desired.HostVolumeSteps != settledHostSteps
+	return actionPlan{route: route, volume: volume, mute: mute, hostVolume: hostVolume}
 }
 
-func (controller *Controller) apply(ctx context.Context, desired Desired, plan actionPlan) error {
+func (controller *Controller) apply(
+	ctx context.Context,
+	revision uint64,
+	desired Desired,
+	plan actionPlan,
+	hostTarget *float64,
+	settledHostSteps int64,
+	hostResolutions chan<- hostResolution,
+) error {
 	sink := Target{Name: controller.targets.FallbackSink}
 	source := Target{Name: controller.targets.FallbackSource}
 	if desired.HeadsetConnected {
@@ -256,7 +325,46 @@ func (controller *Controller) apply(ctx context.Context, desired Desired, plan a
 			return &TargetError{Kind: Source, TargetName: source.Name, Err: err}
 		}
 	}
+	if plan.hostVolume {
+		scalarSetter, ok := controller.setter.(ScalarVolumeSetter)
+		if !ok {
+			return &TargetError{
+				Kind: Sink, TargetName: sink.Name,
+				Err: errors.New("audio setter does not support scalar volume actions"),
+			}
+		}
+		target := 0.0
+		if hostTarget == nil {
+			current, err := scalarSetter.GetVolume(ctx, sink)
+			if err != nil {
+				return &TargetError{Kind: Sink, TargetName: sink.Name, Err: err}
+			}
+			target = clampVolume(
+				current + float64(desired.HostVolumeSteps-settledHostSteps)/15,
+			)
+			select {
+			case hostResolutions <- hostResolution{revision: revision, target: target}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		} else {
+			target = *hostTarget
+		}
+		if err := scalarSetter.SetVolumeScalar(ctx, sink, target); err != nil {
+			return &TargetError{Kind: Sink, TargetName: sink.Name, Err: err}
+		}
+	}
 	return nil
+}
+
+func clampVolume(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 func (controller *Controller) retryDelay(failedAttempt int) time.Duration {

@@ -17,6 +17,9 @@ const (
 	DefaultPollInterval      = 200 * time.Millisecond
 	DefaultDisconnectFailure = 3
 	DefaultLogLevel          = "info"
+	DefaultVolumeMode        = VolumeModeHostOnly
+	VolumeModeHostOnly       = "host-only"
+	VolumeModeSynchronized   = "synchronized"
 )
 
 type Config struct {
@@ -27,7 +30,8 @@ type Config struct {
 }
 
 type Controls struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled    bool   `yaml:"enabled"`
+	VolumeMode string `yaml:"volume_mode"`
 }
 
 type Audio struct {
@@ -68,6 +72,7 @@ func (d Duration) MarshalYAML() (any, error) {
 
 func Defaults() Config {
 	return Config{
+		Controls: Controls{VolumeMode: DefaultVolumeMode},
 		Polling: Polling{
 			Interval:           Duration{DefaultPollInterval},
 			DisconnectFailures: DefaultDisconnectFailure,
@@ -135,6 +140,7 @@ func validateStringScalars(data []byte) error {
 		"audio.headset_source":  true,
 		"audio.fallback_source": true,
 		"polling.interval":      true,
+		"controls.volume_mode":  true,
 		"logging.level":         true,
 	}
 	optionalNonempty := map[string]bool{
@@ -186,6 +192,12 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.Polling.DisconnectFailures < 1 || cfg.Polling.DisconnectFailures > 50 {
 		return errors.New("polling.disconnect_failures must be between 1 and 50")
+	}
+
+	switch cfg.Controls.VolumeMode {
+	case VolumeModeHostOnly, VolumeModeSynchronized:
+	default:
+		return errors.New("controls.volume_mode must be host-only or synchronized")
 	}
 
 	switch cfg.Logging.Level {

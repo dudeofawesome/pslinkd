@@ -6,11 +6,13 @@ import (
 )
 
 const (
-	VendorID     = uint16(0x054c)
-	ProductID    = uint16(0x0ecc)
-	HIDInterface = uint8(3)
-	ReportID     = byte(0xB0)
-	ReportLength = 64
+	VendorID                 = uint16(0x054c)
+	ProductID                = uint16(0x0ecc)
+	HIDInterface             = uint8(3)
+	ReportID                 = byte(0xB0)
+	ReportLength             = 64
+	DeviceVolumeReportID     = byte(0xD0)
+	DeviceVolumeReportLength = 22
 
 	iocNRBits   = 8
 	iocTypeBits = 8
@@ -68,6 +70,21 @@ func FeatureRequest(length uint32) uintptr {
 		length<<iocSizeShift |
 		uint32('H')<<iocTypeShift |
 		0x07<<iocNRShift)
+}
+
+func SetFeatureRequest(length uint32) uintptr {
+	return uintptr((iocRead|iocWrite)<<iocDirShift |
+		length<<iocSizeShift |
+		uint32('H')<<iocTypeShift |
+		0x06<<iocNRShift)
+}
+
+func MaximumDeviceVolumePayload() []byte {
+	payload := make([]byte, DeviceVolumeReportLength)
+	payload[0] = DeviceVolumeReportID
+	payload[1] = 0x02
+	payload[2] = 0x1e
+	return payload
 }
 
 func IsExpectedReadError(err error) bool {

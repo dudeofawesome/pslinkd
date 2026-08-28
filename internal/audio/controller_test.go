@@ -14,12 +14,14 @@ type setCall struct {
 	kind   Kind
 	target Target
 	volume uint8
+	scalar float64
 	muted  bool
 }
 
 type fakeSetter struct {
-	calls   chan setCall
-	results chan error
+	calls       chan setCall
+	results     chan error
+	volumeReads chan float64
 }
 
 func (setter *fakeSetter) SetDefault(ctx context.Context, kind Kind, target Target) error {
@@ -32,6 +34,26 @@ func (setter *fakeSetter) SetVolume(ctx context.Context, target Target, volume u
 
 func (setter *fakeSetter) SetMute(ctx context.Context, target Target, muted bool) error {
 	return setter.call(ctx, setCall{op: "mute", kind: Source, target: target, muted: muted})
+}
+
+func (setter *fakeSetter) GetVolume(ctx context.Context, target Target) (float64, error) {
+	if err := setter.call(ctx, setCall{op: "get-volume", kind: Sink, target: target}); err != nil {
+		return 0, err
+	}
+	select {
+	case volume := <-setter.volumeReads:
+		return volume, nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+func (setter *fakeSetter) SetVolumeScalar(
+	ctx context.Context,
+	target Target,
+	volume float64,
+) error {
+	return setter.call(ctx, setCall{op: "set-volume-scalar", kind: Sink, target: target, scalar: volume})
 }
 
 func (setter *fakeSetter) call(ctx context.Context, call setCall) error {
@@ -116,8 +138,9 @@ func newControllerHarness(t *testing.T, targets Targets) *controllerHarness {
 	t.Helper()
 	harness := &controllerHarness{
 		setter: &fakeSetter{
-			calls:   make(chan setCall, 20),
-			results: make(chan error, 20),
+			calls:       make(chan setCall, 20),
+			results:     make(chan error, 20),
+			volumeReads: make(chan float64, 20),
 		},
 		clock: &fakeRetryClock{timers: make(chan timerRequest, 20)},
 		observer: &fakeActionObserver{
@@ -384,6 +407,7 @@ func TestControllerConvergesInitialAndChangedControlsWithoutReassertingRoute(t *
 	desired := Desired{
 		HeadsetConnected: true,
 		ControlsEnabled:  true,
+		VolumeMode:       "synchronized",
 		Volume:           OptionalVolume{Valid: true, Value: 6},
 		MicrophoneMuted:  OptionalBool{Valid: true, Value: true},
 	}
@@ -470,6 +494,190 @@ func TestControllerSkipsMuteWithoutSourceRouting(t *testing.T) {
 		t.Fatalf("mute action without source routing = %#v", call)
 	default:
 	}
+}
+
+func TestControllerHostOnlyUsesFreshReadAndAbsoluteIdempotentRetry(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	desired := Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		VolumeMode:       "host-only",
+		HostVolumeSteps:  1,
+	}
+	h.desired <- desired
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got.op != "get-volume" {
+		t.Fatalf("first host action = %#v", got)
+	}
+	h.setter.results <- nil
+	h.setter.volumeReads <- 0.5
+	want := 0.5 + 1.0/15
+	if got := receiveSetCall(t, h.setter); got.op != "set-volume-scalar" || got.scalar != want {
+		t.Fatalf("absolute host action = %#v, want %g", got, want)
+	}
+	h.setter.results <- errors.New("temporary failure")
+	receiveRetry(t, h.observer)
+	timer := <-h.clock.timers
+	timer.timer.ticks <- time.Time{}
+	receiveSetCall(t, h.setter) // routing retry
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got.op != "set-volume-scalar" || got.scalar != want {
+		t.Fatalf("idempotent retry = %#v, want %g", got, want)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+
+	desired.HostVolumeSteps++
+	h.desired <- desired
+	if got := receiveSetCall(t, h.setter); got.op != "get-volume" {
+		t.Fatalf("next edge did not refresh volume: %#v", got)
+	}
+	h.setter.results <- nil
+	h.setter.volumeReads <- 0.25
+	if got := receiveSetCall(t, h.setter); got.op != "set-volume-scalar" || got.scalar != 0.25+1.0/15 {
+		t.Fatalf("second absolute host action = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+}
+
+func TestControllerHostOnlyClampsAndIgnoresAbsoluteReports(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	h.desired <- Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		VolumeMode:       "host-only",
+		HostVolumeSteps:  -1,
+		Volume:           OptionalVolume{Valid: true, Value: 7},
+	}
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got.op != "get-volume" {
+		t.Fatalf("host read = %#v", got)
+	}
+	h.setter.results <- nil
+	h.setter.volumeReads <- 0.01
+	if got := receiveSetCall(t, h.setter); got.op != "set-volume-scalar" || got.scalar != 0 {
+		t.Fatalf("clamped host action = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+}
+
+func TestControllerHostOnlyAccumulatesEdgesAgainstPendingTarget(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	desired := Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		VolumeMode:       "host-only",
+		HostVolumeSteps:  1,
+	}
+	h.desired <- desired
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	if got := receiveSetCall(t, h.setter); got.op != "get-volume" {
+		t.Fatalf("host read = %#v", got)
+	}
+	h.setter.results <- nil
+	h.setter.volumeReads <- 0.5
+	first := receiveSetCall(t, h.setter)
+	if first.op != "set-volume-scalar" {
+		t.Fatalf("first pending write = %#v", first)
+	}
+
+	desired.HostVolumeSteps = 2
+	h.desired <- desired
+	// The obsolete scalar write is canceled. Routing has not completed as a
+	// revision yet, so it is safely retried before the accumulated target.
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	got := receiveSetCall(t, h.setter)
+	want := 0.5 + 2.0/15
+	if got.op != "set-volume-scalar" || got.scalar != want {
+		t.Fatalf("accumulated write = %#v, want %g", got, want)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+	select {
+	case call := <-h.setter.calls:
+		t.Fatalf("pending accumulation performed a stale read: %#v", call)
+	default:
+	}
+}
+
+func TestControllerHostOnlyDoesNothingWhileControlsDisabled(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	h.desired <- Desired{
+		HeadsetConnected: true,
+		VolumeMode:       "host-only",
+		HostVolumeSteps:  1,
+	}
+	if got := receiveSetCall(t, h.setter); got.op != "" {
+		t.Fatalf("disabled host-volume action = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
+	select {
+	case call := <-h.setter.calls:
+		t.Fatalf("disabled controls produced action %#v", call)
+	default:
+	}
+}
+
+func TestControllerHostOnlyDoesNotActOnRawVolumeAndKeepsMuteConvergence(t *testing.T) {
+	h := newControllerHarness(t, Targets{
+		HeadsetSink:    "headset",
+		FallbackSink:   "speakers",
+		HeadsetSource:  "headset-mic",
+		FallbackSource: "desk-mic",
+	})
+	desired := Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		VolumeMode:       "host-only",
+		Volume:           OptionalVolume{Valid: true, Value: 3},
+		MicrophoneMuted:  OptionalBool{Valid: true, Value: true},
+	}
+	h.desired <- desired
+	for _, want := range []setCall{
+		{kind: Sink, target: Target{Name: "headset"}},
+		{kind: Source, target: Target{Name: "headset-mic"}},
+		{op: "mute", kind: Source, target: Target{Name: "headset-mic"}, muted: true},
+	} {
+		if got := receiveSetCall(t, h.setter); got != want {
+			t.Fatalf("host-only initial action = %#v, want %#v", got, want)
+		}
+		h.setter.results <- nil
+	}
+	receiveSucceeded(t, h.observer)
+	desired.Volume.Value = 9
+	h.desired <- desired
+	select {
+	case call := <-h.setter.calls:
+		t.Fatalf("raw absolute volume caused host action: %#v", call)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestControllerHostOnlyClampsAtUpperBound(t *testing.T) {
+	h := newControllerHarness(t, Targets{HeadsetSink: "headset", FallbackSink: "speakers"})
+	h.desired <- Desired{
+		HeadsetConnected: true,
+		ControlsEnabled:  true,
+		VolumeMode:       "host-only",
+		HostVolumeSteps:  1,
+	}
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	receiveSetCall(t, h.setter)
+	h.setter.results <- nil
+	h.setter.volumeReads <- 0.99
+	if got := receiveSetCall(t, h.setter); got.scalar != 1 {
+		t.Fatalf("upper-clamped host action = %#v", got)
+	}
+	h.setter.results <- nil
+	receiveSucceeded(t, h.observer)
 }
 
 func TestControllerRetriesControlAndCancelsItOnDisconnect(t *testing.T) {

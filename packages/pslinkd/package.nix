@@ -2,7 +2,7 @@
 
 pkgs.buildGoModule {
   pname = "pslinkd";
-  version = "0.1.0";
+  version = "1.1.1";
 
   src = ../..;
   vendorHash = "sha256-Gz2RQZkR2uEeoVM6OmsS9AAqQnqkp+TD/vFGJiQ4nmc=";

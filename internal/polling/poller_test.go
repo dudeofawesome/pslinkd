@@ -34,9 +34,23 @@ type scriptedResult struct {
 }
 
 type scriptedReader struct {
-	mu      sync.Mutex
-	results []scriptedResult
-	closed  chan struct{}
+	mu           sync.Mutex
+	results      []scriptedResult
+	closed       chan struct{}
+	writes       chan []byte
+	writeResults []error
+}
+
+func (reader *scriptedReader) WriteFeature(payload []byte) error {
+	reader.writes <- append([]byte(nil), payload...)
+	reader.mu.Lock()
+	defer reader.mu.Unlock()
+	if len(reader.writeResults) == 0 {
+		return nil
+	}
+	err := reader.writeResults[0]
+	reader.writeResults = reader.writeResults[1:]
+	return err
 }
 
 func (reader *scriptedReader) ReadFeature() ([]byte, error) {
@@ -60,11 +74,14 @@ func (reader *scriptedReader) Close() error {
 }
 
 type recordingObserver struct {
-	connections    chan state.Connection
-	interactions   chan state.InteractionUpdate
-	invalidVolumes chan uint8
-	failures       chan error
-	recoveries     chan string
+	connections     chan state.Connection
+	interactions    chan state.InteractionUpdate
+	invalidVolumes  chan uint8
+	failures        chan error
+	recoveries      chan string
+	deviceRestored  chan string
+	writeFailures   chan error
+	writeRecoveries chan string
 }
 
 func (observer *recordingObserver) ConnectionChanged(connection state.Connection) {
@@ -87,6 +104,18 @@ func (observer *recordingObserver) HIDRecovered(path string) {
 	observer.recoveries <- path
 }
 
+func (observer *recordingObserver) DeviceVolumeRestored(path string) {
+	observer.deviceRestored <- path
+}
+
+func (observer *recordingObserver) DeviceVolumeWriteFailure(_ string, err error) {
+	observer.writeFailures <- err
+}
+
+func (observer *recordingObserver) DeviceVolumeWriteRecovered(path string) {
+	observer.writeRecoveries <- path
+}
+
 type harness struct {
 	clock      *fakeClock
 	selections chan discovery.Candidate
@@ -94,17 +123,21 @@ type harness struct {
 	readers    map[string]*scriptedReader
 	cancel     context.CancelFunc
 	done       chan error
+	poller     *Poller
 }
 
 func newHarness(t *testing.T, readers map[string]*scriptedReader) *harness {
 	t.Helper()
 	clock := &fakeClock{ticker: &fakeTicker{ticks: make(chan time.Time)}}
 	observer := &recordingObserver{
-		connections:    make(chan state.Connection, 20),
-		interactions:   make(chan state.InteractionUpdate, 20),
-		invalidVolumes: make(chan uint8, 20),
-		failures:       make(chan error, 20),
-		recoveries:     make(chan string, 20),
+		connections:     make(chan state.Connection, 20),
+		interactions:    make(chan state.InteractionUpdate, 20),
+		invalidVolumes:  make(chan uint8, 20),
+		failures:        make(chan error, 20),
+		recoveries:      make(chan string, 20),
+		deviceRestored:  make(chan string, 20),
+		writeFailures:   make(chan error, 20),
+		writeRecoveries: make(chan string, 20),
 	}
 	h := &harness{
 		clock:      clock,
@@ -122,6 +155,7 @@ func newHarness(t *testing.T, readers map[string]*scriptedReader) *harness {
 		}
 		return reader, nil
 	}, observer)
+	h.poller = poller
 	go func() { h.done <- poller.Run(ctx, h.selections) }()
 	t.Cleanup(func() {
 		cancel()
@@ -147,7 +181,11 @@ func featureReport(connected bool) []byte {
 }
 
 func newScriptedReader(results ...scriptedResult) *scriptedReader {
-	return &scriptedReader{results: results, closed: make(chan struct{})}
+	return &scriptedReader{
+		results: results,
+		closed:  make(chan struct{}),
+		writes:  make(chan []byte, 20),
+	}
 }
 
 func (h *harness) selectDevice(candidate discovery.Candidate) {
@@ -368,6 +406,148 @@ func TestPollerReportsAndOmitsInvalidVolume(t *testing.T) {
 	}
 	if update := receiveInteraction(t, h.observer); update.Volume.Valid {
 		t.Fatalf("invalid volume entered normalized state: %#v", update)
+	}
+}
+
+func TestHostOnlyDeviceVolumeRestoreUsesReadbackAndDoesNotRepeat(t *testing.T) {
+	below := featureReport(true)
+	below[44] = 7
+	maximum := featureReport(true)
+	maximum[44] = 15
+	reader := newScriptedReader(
+		scriptedResult{data: below},
+		scriptedResult{data: maximum},
+		scriptedResult{data: maximum},
+	)
+	h := newHarness(t, map[string]*scriptedReader{"/dev/hidraw1": reader})
+	h.poller.SetHostOnlyVolume(true)
+	h.selectDevice(discovery.Candidate{Syspath: "/sys/a", Devnode: "/dev/hidraw1"})
+	h.tick()
+	receiveConnection(t, h.observer)
+	receiveInteraction(t, h.observer)
+	select {
+	case payload := <-reader.writes:
+		if !reflect.DeepEqual(payload, hid.MaximumDeviceVolumePayload()) {
+			t.Fatalf("feature payload = %x", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("device volume was not restored")
+	}
+	select {
+	case <-h.observer.writeRecoveries:
+	case <-time.After(time.Second):
+		t.Fatal("feature write did not complete")
+	}
+
+	h.tick()
+	select {
+	case path := <-h.observer.deviceRestored:
+		if path != "/dev/hidraw1" {
+			t.Fatalf("restored path = %q", path)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restore confirmation was not reported")
+	}
+	h.tick()
+	select {
+	case payload := <-reader.writes:
+		t.Fatalf("repeated level-15 write = %x", payload)
+	case path := <-h.observer.deviceRestored:
+		t.Fatalf("repeated restore confirmation for %q", path)
+	default:
+	}
+}
+
+func TestHostOnlyDeviceVolumeRetriesUnconfirmedWriteAndSkipsInvalidVolume(t *testing.T) {
+	below := featureReport(true)
+	below[44] = 4
+	invalid := featureReport(true)
+	invalid[44] = 16
+	reader := newScriptedReader(
+		scriptedResult{data: below},
+		scriptedResult{data: below},
+		scriptedResult{data: invalid},
+	)
+	h := newHarness(t, map[string]*scriptedReader{"/dev/hidraw1": reader})
+	h.poller.SetHostOnlyVolume(true)
+	h.selectDevice(discovery.Candidate{Syspath: "/sys/a", Devnode: "/dev/hidraw1"})
+	h.tick()
+	receiveConnection(t, h.observer)
+	receiveInteraction(t, h.observer)
+	<-reader.writes
+	<-h.observer.writeRecoveries
+	h.tick()
+	select {
+	case <-reader.writes:
+	case <-time.After(time.Second):
+		t.Fatal("unconfirmed restore was not retried")
+	}
+	<-h.observer.writeRecoveries
+	h.tick()
+	<-h.observer.invalidVolumes
+	select {
+	case payload := <-reader.writes:
+		t.Fatalf("invalid volume caused write %x", payload)
+	default:
+	}
+}
+
+func TestDeviceVolumeRestoreCoalescesRetriesAndInvalidatesStaleResults(t *testing.T) {
+	volume := uint8(5)
+	reader := newScriptedReader()
+	poller := &Poller{
+		hostOnlyVolume: true,
+		reader:         reader,
+		candidate:      discovery.Candidate{Devnode: "/dev/hidraw1"},
+		writeResults:   make(chan writeResult, 1),
+	}
+	poller.convergeDeviceVolume(&volume)
+	poller.convergeDeviceVolume(&volume)
+	select {
+	case <-reader.writes:
+	case <-time.After(time.Second):
+		t.Fatal("initial restore did not start")
+	}
+	select {
+	case payload := <-reader.writes:
+		t.Fatalf("equivalent restore was not coalesced: %x", payload)
+	default:
+	}
+	oldGeneration := poller.writeGeneration
+	poller.resetDeviceVolumeRestore()
+	poller.finishDeviceVolumeWrite(writeResult{generation: oldGeneration})
+	if poller.waitingReadback || poller.writeInFlight || poller.restoreActive {
+		t.Fatalf("stale write result revived restore state: %#v", poller)
+	}
+}
+
+func TestDeviceVolumeRestoreRetriesAfterWriteFailure(t *testing.T) {
+	volume := uint8(5)
+	reader := newScriptedReader()
+	observer := &recordingObserver{writeFailures: make(chan error, 2)}
+	poller := &Poller{
+		hostOnlyVolume: true,
+		reader:         reader,
+		observer:       observer,
+		candidate:      discovery.Candidate{Devnode: "/dev/hidraw1"},
+		writeResults:   make(chan writeResult, 1),
+	}
+	poller.convergeDeviceVolume(&volume)
+	<-reader.writes
+	poller.finishDeviceVolumeWrite(writeResult{err: errors.New("write failed")})
+	select {
+	case <-observer.writeFailures:
+	case <-time.After(time.Second):
+		t.Fatal("unexpected write failure was not reported")
+	}
+	for poller.retryPolls > 0 {
+		poller.convergeDeviceVolume(&volume)
+	}
+	poller.convergeDeviceVolume(&volume)
+	select {
+	case <-reader.writes:
+	case <-time.After(time.Second):
+		t.Fatal("failed restore was not retried")
 	}
 }
 

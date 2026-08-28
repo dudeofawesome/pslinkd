@@ -110,6 +110,28 @@ func TestWPCTLRefreshesEphemeralIDForEveryAction(t *testing.T) {
 	}
 }
 
+func TestWPCTLReadsAndWritesAbsoluteScalarVolume(t *testing.T) {
+	runner := &fakeCommandRunner{responses: []commandResponse{
+		{result: CommandResult{Stdout: []byte(sinkFixture)}},
+		{result: CommandResult{Stdout: []byte("Volume: 0.42 [MUTED]\n")}},
+		{result: CommandResult{Stdout: []byte(sinkFixture)}},
+		{},
+	}}
+	adapter := NewWPCTL(runner, time.Second)
+	target := Target{Name: "alsa_output.usb-Sony"}
+	volume, err := adapter.GetVolume(context.Background(), target)
+	if err != nil || volume != 0.42 {
+		t.Fatalf("volume = %g, error %v", volume, err)
+	}
+	if err := adapter.SetVolumeScalar(context.Background(), target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"set-volume", "47", "0.5"}
+	if got := runner.calls[len(runner.calls)-1].args; !reflect.DeepEqual(got, want) {
+		t.Fatalf("absolute set-volume = %#v, want %#v", got, want)
+	}
+}
+
 func TestWPCTLAutomaticallyAssociatesUSBAndSelectsHighestPriorityNode(t *testing.T) {
 	usb := USBIdentity{
 		Syspath: "/sys/devices/pci0000:00/0000:69:00.0/usb3/3-4",
